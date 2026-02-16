@@ -68,7 +68,7 @@ jobs:
             python3 -c "
           import yaml, sys
           with open(sys.argv[1]) as fh:
-              yaml.safe_load(fh)
+              list(yaml.safe_load_all(fh))
           " "$f" || exit 1
           done
 
