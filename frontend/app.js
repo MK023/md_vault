@@ -290,6 +290,67 @@
         loadDocuments();
     });
 
+    // Change Password
+    var pwOverlay = document.getElementById("pw-overlay");
+    var pwNewInput = document.getElementById("pw-new");
+    var pwConfirmInput = document.getElementById("pw-confirm");
+    var pwError = document.getElementById("pw-error");
+
+    document.getElementById("btn-change-pw").addEventListener("click", function () {
+        closeAllMenus();
+        pwNewInput.value = "";
+        pwConfirmInput.value = "";
+        pwError.textContent = "";
+        pwOverlay.style.display = "flex";
+        pwNewInput.focus();
+    });
+
+    async function doChangePassword() {
+        var newPw = pwNewInput.value;
+        var confirmPw = pwConfirmInput.value;
+        pwError.textContent = "";
+
+        if (!newPw) {
+            pwError.textContent = "Password cannot be empty";
+            return;
+        }
+        if (newPw !== confirmPw) {
+            pwError.textContent = "Passwords do not match";
+            return;
+        }
+
+        try {
+            var res = await apiFetch("/auth/password", {
+                method: "PUT",
+                body: { username: "admin", password: newPw },
+            });
+            if (res.ok || res.status === 204) {
+                pwOverlay.style.display = "none";
+                // Force re-login with new password
+                sessionStorage.removeItem("md_vault_token");
+                token = null;
+                showLogin();
+            } else {
+                var data = await res.json();
+                pwError.textContent = data.detail || "Failed to change password";
+            }
+        } catch (err) {
+            pwError.textContent = "Connection error";
+        }
+    }
+
+    document.getElementById("pw-ok").addEventListener("click", doChangePassword);
+    pwConfirmInput.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") doChangePassword();
+    });
+
+    document.getElementById("pw-cancel").addEventListener("click", function () {
+        pwOverlay.style.display = "none";
+    });
+    document.getElementById("pw-close").addEventListener("click", function () {
+        pwOverlay.style.display = "none";
+    });
+
     // Edit menu
     document.getElementById("btn-edit-current").addEventListener("click", function () {
         closeAllMenus();

@@ -64,6 +64,7 @@
                 <button class="dropdown-item" id="btn-new-folder">New Folder</button>
                 <button class="dropdown-item" id="btn-refresh">Refresh</button>
                 <hr>
+                <button class="dropdown-item" id="btn-change-pw">Change Password</button>
                 <button class="dropdown-item" id="btn-logout">Logout</button>
             </div>
             <div id="dropdown-edit" class="dropdown-menu">
@@ -191,6 +192,37 @@
                 <div class="dialog-buttons">
                     <button id="editor-save" class="win-btn">Save</button>
                     <button id="editor-cancel" class="win-btn">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Password Dialog -->
+    <div id="pw-overlay" class="overlay" style="display:none;">
+        <div class="win-dialog">
+            <div class="title-bar">
+                <span class="title-bar-text">Change Password</span>
+                <div class="title-bar-controls">
+                    <button aria-label="Close" id="pw-close">×</button>
+                </div>
+            </div>
+            <div class="dialog-body">
+                <div class="dialog-icon">🔒</div>
+                <div class="dialog-form">
+                    <p>Enter a new password for your account.</p>
+                    <div class="form-row">
+                        <label for="pw-new">New password:</label>
+                        <input type="password" id="pw-new" placeholder="New password">
+                    </div>
+                    <div class="form-row">
+                        <label for="pw-confirm">Confirm:</label>
+                        <input type="password" id="pw-confirm" placeholder="Confirm password">
+                    </div>
+                    <div id="pw-error" class="error-text"></div>
+                    <div class="dialog-buttons">
+                        <button id="pw-ok" class="win-btn">OK</button>
+                        <button id="pw-cancel" class="win-btn">Cancel</button>
+                    </div>
                 </div>
             </div>
         </div>
