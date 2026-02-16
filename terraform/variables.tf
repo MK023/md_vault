@@ -1,13 +1,25 @@
-variable "aws_region" {
-  description = "AWS region"
+variable "gcp_project" {
+  description = "Google Cloud project ID"
   type        = string
-  default     = "eu-south-1"
+  default     = "mdvault"
 }
 
-variable "instance_type" {
-  description = "EC2 instance type"
+variable "gcp_region" {
+  description = "GCP region"
   type        = string
-  default     = "t3.small"
+  default     = "europe-west8"
+}
+
+variable "gcp_zone" {
+  description = "GCP zone"
+  type        = string
+  default     = "europe-west8-a"
+}
+
+variable "machine_type" {
+  description = "GCE machine type"
+  type        = string
+  default     = "e2-small"
 }
 
 variable "domain" {
@@ -23,7 +35,7 @@ variable "cloudflare_api_token" {
 }
 
 variable "cloudflare_account_id" {
-  description = "Cloudflare account ID (different from zone ID)"
+  description = "Cloudflare account ID"
   type        = string
 }
 
@@ -33,7 +45,7 @@ variable "cloudflare_zone_id" {
 }
 
 variable "ssh_public_key" {
-  description = "SSH public key for EC2 access"
+  description = "SSH public key for VM access"
   type        = string
 }
 

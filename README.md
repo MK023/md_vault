@@ -1,6 +1,6 @@
 # MD Vault
 
-A self-hosted Markdown note-taking application with full-text search, served through a Cloudflare Tunnel on a single EC2 instance running K3s. Features a nostalgic Windows 95-inspired UI.
+A self-hosted Markdown knowledge base with full-text search, served through a Cloudflare Tunnel on a single GCE instance running K3s. Features a nostalgic Windows 95-inspired UI.
 
 ## Architecture Overview
 
@@ -10,8 +10,8 @@ A self-hosted Markdown note-taking application with full-text search, served thr
                     Cloudflare Tunnel
                             |
                   +-------------------+
-                  |   EC2 Instance    |
-                  |   (K3s Cluster)   |
+                  |  GCE Instance     |
+                  |  (K3s Cluster)    |
                   |                   |
                   |  Nginx Ingress    |
                   |    /         \    |
@@ -29,63 +29,73 @@ A self-hosted Markdown note-taking application with full-text search, served thr
 
 | Component       | Technology                        |
 |-----------------|-----------------------------------|
-| **Backend API** | Python FastAPI                    |
+| **Backend API** | Python FastAPI + Sentry           |
 | **Database**    | SQLite with FTS5 full-text search |
 | **Frontend**    | Vanilla JS with Windows 95 UI     |
 | **Orchestration** | K3s (lightweight Kubernetes)   |
-| **Infrastructure** | Terraform (AWS EC2)           |
+| **Infrastructure** | Terraform (Google Cloud)      |
 | **Networking**  | Cloudflare Tunnel (Zero Trust)    |
 | **Backups**     | Cloudflare R2 (S3-compatible)     |
+| **CI/CD**       | GitHub Actions                    |
 
 ## Prerequisites
 
-- **AWS account** with credentials configured (`aws configure`)
-- **Cloudflare account** with a registered domain and Tunnel token
+- **Google Cloud** account with a project created (`gcloud auth login`)
+- **Cloudflare account** with a registered domain and API token
 - **Terraform** >= 1.5 installed locally
 - **Docker** installed locally (for building images)
-- **SSH key pair** for EC2 access
+- **SSH key pair** for VM access
 
 ## Quick Start
 
 1. **Clone the repository**
 
    ```bash
-   git clone https://github.com/your-username/md-vault.git
-   cd md-vault
+   git clone https://github.com/MK023/md_vault.git
+   cd md_vault
    ```
 
 2. **Configure Terraform variables**
 
    ```bash
-   cp terraform/terraform.tfvars.example terraform/terraform.tfvars
+   cd terraform
+   cat > terraform.tfvars <<EOF
+   gcp_project          = "mdvault"
+   gcp_region           = "europe-west8"
+   gcp_zone             = "europe-west8-a"
+   machine_type         = "e2-small"
+   domain               = "mdvault.site"
+   cloudflare_api_token = "your-cloudflare-api-token"
+   cloudflare_account_id = "your-cloudflare-account-id"
+   cloudflare_zone_id   = "your-cloudflare-zone-id"
+   ssh_public_key       = "ssh-ed25519 AAAA..."
+   ssh_allowed_ip       = "your.ip.address/32"
+   EOF
    ```
-
-   Edit `terraform/terraform.tfvars` and fill in your AWS region, instance type, SSH key name, and Cloudflare Tunnel token.
 
 3. **Provision the infrastructure**
 
    ```bash
-   cd terraform
    terraform init
    terraform apply
    cd ..
    ```
 
-   This creates an EC2 instance with K3s pre-installed via user-data.
+   This creates a GCE instance with K3s pre-installed via startup script.
 
-4. **SSH into the EC2 instance**
+4. **SSH into the GCE instance**
 
    ```bash
-   ssh -i ~/.ssh/your-key.pem ubuntu@<EC2_PUBLIC_IP>
+   ssh -i ~/.ssh/md-vault mdvault@<GCE_PUBLIC_IP>
    ```
 
 5. **Configure Kubernetes secrets**
 
    ```bash
    cp k8s/secrets.yaml.example k8s/secrets.yaml
+   nano k8s/secrets.yaml
+   # Fill in: JWT_SECRET, ADMIN_PASSWORD, CLOUDFLARE_TUNNEL_TOKEN, R2_ENDPOINT, SENTRY_DSN
    ```
-
-   Edit `k8s/secrets.yaml` and fill in your base64-encoded Cloudflare Tunnel token and any other secrets.
 
 6. **Deploy the application**
 
@@ -96,123 +106,125 @@ A self-hosted Markdown note-taking application with full-text search, served thr
 
 7. **Access your vault**
 
-   Open your browser and navigate to your configured Cloudflare domain (e.g., `https://vault.yourdomain.com`).
+   Open your browser and navigate to `https://mdvault.site`.
 
 ## Local Development
 
-### API
+### With Docker Compose
+
+```bash
+docker-compose up --build
+# API at http://localhost:8000, Frontend at http://localhost:3000
+```
+
+### API only
 
 ```bash
 cd api
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+uvicorn api.main:app --reload --port 8000
 ```
 
-The API will be available at `http://localhost:8000`. Interactive docs at `http://localhost:8000/docs`.
-
-### Frontend
+### Frontend only
 
 ```bash
 cd frontend
-# Open directly in browser (no build step needed)
-open index.html
-# Or serve with Python
 python -m http.server 3000
 ```
-
-The frontend will be available at `http://localhost:3000`.
 
 ## Project Structure
 
 ```
-md-vault/
-├── api/                        # FastAPI backend
-│   ├── Dockerfile
-│   ├── main.py                 # Application entry point
-│   ├── requirements.txt
-│   └── ...
-├── frontend/                   # Vanilla JS frontend
-│   ├── Dockerfile
-│   ├── index.html
-│   ├── style.css
-│   ├── app.js
-│   └── nginx.conf
-├── k8s/                        # Kubernetes manifests
-│   ├── namespace.yaml
-│   ├── secrets.yaml.example
-│   ├── configmap.yaml
-│   ├── pv-pvc.yaml
-│   ├── api-deployment.yaml
-│   ├── api-service.yaml
-│   ├── frontend-deployment.yaml
-│   ├── frontend-service.yaml
-│   ├── cloudflared-deployment.yaml
-│   ├── ingress.yaml
-│   └── backup-cronjob.yaml
-├── terraform/                  # Infrastructure as Code
-│   ├── main.tf
-│   ├── variables.tf
-│   ├── outputs.tf
-│   └── terraform.tfvars.example
-├── scripts/                    # Utility scripts
-│   ├── deploy.sh               # Full deploy pipeline
-│   └── backup.py               # SQLite backup to R2
-├── .gitignore
-└── README.md
+md_vault/
+  api/                          # FastAPI backend
+    main.py                     # App entry point + Sentry
+    config.py                   # Env var configuration
+    database.py                 # SQLite + FTS5 setup
+    auth.py                     # JWT + bcrypt auth
+    models.py                   # Pydantic schemas
+    routers/
+      auth.py                   # Login, password change
+      documents.py              # CRUD + file upload
+      search.py                 # Full-text search
+    Dockerfile
+    requirements.txt
+  frontend/                     # Vanilla JS frontend (Win95 UI)
+    index.html
+    style.css
+    app.js
+    nginx.conf
+    Dockerfile
+  k8s/                          # Kubernetes manifests
+    namespace.yaml
+    secrets.yaml.example
+    configmap.yaml
+    pv-pvc.yaml
+    api-deployment.yaml
+    api-service.yaml
+    frontend-deployment.yaml
+    frontend-service.yaml
+    cloudflared-deployment.yaml
+    ingress.yaml
+    backup-cronjob.yaml
+  terraform/                    # Infrastructure as Code (GCP)
+    providers.tf
+    variables.tf
+    vpc.tf
+    firewall.tf
+    compute.tf
+    cloudflare.tf
+    gcs_backend.tf
+    outputs.tf
+    scripts/
+      startup.sh
+  scripts/
+    deploy.sh                   # Full deploy pipeline
+    backup.py                   # SQLite backup to R2
+  docs/
+    architettura.md             # Technical documentation (IT)
+    architettura.drawio         # Architecture diagram
+  .github/
+    workflows/
+      ci.yml                    # CI pipeline (lint, build, validate)
+  docker-compose.yml
+  pyproject.toml
+  .gitignore
 ```
 
 ## API Endpoints
 
-| Method   | Endpoint              | Description                          |
-|----------|-----------------------|--------------------------------------|
-| `GET`    | `/api/notes`          | List all notes (with pagination)     |
-| `POST`   | `/api/notes`          | Create a new note                    |
-| `GET`    | `/api/notes/{id}`     | Get a single note by ID              |
-| `PUT`    | `/api/notes/{id}`     | Update an existing note              |
-| `DELETE` | `/api/notes/{id}`     | Delete a note                        |
-| `GET`    | `/api/search?q=`      | Full-text search across all notes    |
-| `GET`    | `/api/health`         | Health check endpoint                |
-
-## Screenshots
-
-*Screenshots coming soon.*
+| Method   | Endpoint              | Description                          | Auth |
+|----------|-----------------------|--------------------------------------|------|
+| `POST`   | `/api/auth/login`     | Login, returns JWT token             | No   |
+| `PUT`    | `/api/auth/password`  | Change password                      | Yes  |
+| `GET`    | `/api/docs`           | List all documents                   | Yes  |
+| `POST`   | `/api/docs`           | Create a document (JSON)             | Yes  |
+| `POST`   | `/api/docs/upload`    | Upload a file (multipart)            | Yes  |
+| `GET`    | `/api/docs/{id}`      | Get document by ID                   | Yes  |
+| `GET`    | `/api/docs/{id}/file` | Download original file               | Yes  |
+| `PUT`    | `/api/docs/{id}`      | Update document                      | Yes  |
+| `DELETE` | `/api/docs/{id}`      | Delete document + file               | Yes  |
+| `GET`    | `/api/docs/meta/tags` | List all unique tags                 | Yes  |
+| `GET`    | `/api/search?q=`      | Full-text search (FTS5)              | Yes  |
+| `GET`    | `/api/healthz`        | Health check                         | No   |
 
 ## Backup Strategy
 
-Backups are managed by `scripts/backup.py` and run automatically via a Kubernetes CronJob:
+Backups run automatically via Kubernetes CronJob at 03:00 UTC daily:
 
-- **Local backup** using the SQLite online backup API (safe, no locking)
+- **Local backup** using the SQLite online backup API (consistent, no locking)
 - **Remote backup** uploaded to Cloudflare R2 (S3-compatible storage)
-- **Retention** keeps the latest 7 local backups and removes older ones
+- **Retention** keeps the latest 7 local backups
 
-To run a manual backup:
-
+Manual backup:
 ```bash
-kubectl exec -it deployment/md-vault-api -n md-vault -- python /app/backup.py
+kubectl exec deployment/md-vault-api -n md-vault -- python /app/backup.py
 ```
 
 ## License
 
 MIT License
 
-Copyright (c) 2025 MD Vault Contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Copyright (c) 2026 Marco Bellingeri

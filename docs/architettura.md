@@ -3,7 +3,7 @@
 **Sistema di Knowledge Base Personale e Progetto Portfolio DevOps**
 
 Dominio: `mdvault.site`
-Stack: AWS EC2 t3.small, K3s, Nginx Ingress, Cloudflare Tunnel, FastAPI, SQLite FTS5
+Stack: GCP GCE e2-small, K3s, Nginx Ingress, Cloudflare Tunnel, FastAPI, SQLite FTS5
 Autore: Marco Bellingeri
 Data: Febbraio 2026
 
@@ -39,12 +39,12 @@ MD Vault e un sistema di knowledge base personale self-hosted, progettato per ge
 
 L'esigenza nasce dalla necessita di avere un sistema documentale leggero ma completo, che potesse:
 
-- Funzionare su un singolo server con risorse limitate (2GB RAM su t3.small)
+- Funzionare su un singolo server con risorse limitate (2GB RAM su e2-small)
 - Essere accessibile da qualsiasi dispositivo via HTTPS
 - Supportare ricerca full-text veloce su tutti i contenuti
 - Gestire file multiformat (Markdown, PDF, DOCX, XLSX, immagini, diagrammi draw.io)
 - Essere completamente automatizzato nel deploy (Infrastructure as Code)
-- Non avere costi ricorrenti significativi (dominio + EC2 spot/reserved)
+- Non avere costi ricorrenti significativi (dominio + GCE con $300 crediti gratuiti)
 
 Il risultato e un sistema production-ready che risolve un problema reale, con vincoli concreti di risorse e budget, e che dimostra padronanza dello stack DevOps dalla infrastruttura al codice applicativo.
 
@@ -83,9 +83,9 @@ Il risultato e un sistema production-ready che risolve un problema reale, con vi
                                  |
                                  v
               +------------------------------------------+
-              |         AWS EC2 t3.small                  |
+              |         GCP GCE e2-small                   |
               |         Ubuntu 22.04                      |
-              |         eu-south-1 (Milano)                |
+              |         europe-west8 (Milano)              |
               |                                          |
               |   +------------------------------------+  |
               |   |          K3s Cluster                |  |
@@ -137,7 +137,7 @@ Il risultato e un sistema production-ready che risolve un problema reale, con vi
 
 1. **Client**: l'utente accede a `https://mdvault.site` dal browser.
 2. **Cloudflare Edge**: la richiesta arriva alla rete edge di Cloudflare, che gestisce il certificato SSL/TLS, la protezione DDoS e il caching degli asset statici.
-3. **Cloudflare Tunnel**: il traffico viene instradato attraverso un tunnel crittografato verso l'istanza EC2. Il tunnel e una connessione *uscente* dalla VM, quindi non serve aprire porte inbound (nessun ingress rule HTTP/HTTPS nel Security Group).
+3. **Cloudflare Tunnel**: il traffico viene instradato attraverso un tunnel crittografato verso l'istanza GCE. Il tunnel e una connessione *uscente* dalla VM, quindi non serve aprire porte inbound (nessuna firewall rule HTTP/HTTPS).
 4. **Nginx Ingress Controller**: all'interno del cluster K3s, l'Ingress Controller riceve il traffico e lo instrada in base al path:
    - `/*` va al pod Frontend (file statici serviti da nginx:alpine)
    - `/api/*` va al pod API (FastAPI su uvicorn)
@@ -803,26 +803,32 @@ La funzione `src.backup(dst)` copia pagina per pagina il database sorgente nella
 
 ### Terraform Overview
 
-L'infrastruttura e definita interamente come codice con Terraform, usando due provider:
+L'infrastruttura e definita interamente come codice con Terraform, usando tre provider:
 
 ```hcl
 terraform {
   required_version = ">= 1.5.0"
 
   required_providers {
-    aws = {
-      source  = "hashicorp/aws"
+    google = {
+      source  = "hashicorp/google"
       version = "~> 5.0"
     }
     cloudflare = {
       source  = "cloudflare/cloudflare"
       version = "~> 4.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
 }
 
-provider "aws" {
-  region = var.aws_region   # default: eu-south-1 (Milano)
+provider "google" {
+  project = var.gcp_project   # mdvault
+  region  = var.gcp_region    # europe-west8 (Milano)
+  zone    = var.gcp_zone      # europe-west8-a
 }
 
 provider "cloudflare" {
@@ -834,116 +840,120 @@ provider "cloudflare" {
 
 ```
 terraform/
-  providers.tf         # Provider AWS e Cloudflare
+  providers.tf         # Provider Google Cloud e Cloudflare
   variables.tf         # Variabili con default
-  vpc.tf               # VPC, subnet, IGW, route table
-  security_groups.tf   # Security group (solo SSH inbound)
-  ec2.tf               # AMI, key pair, istanza EC2
+  vpc.tf               # VPC network e subnet
+  firewall.tf          # Firewall rules (solo SSH inbound)
+  compute.tf           # Istanza GCE
   cloudflare.tf        # Tunnel, config, record DNS
-  s3_backend.tf        # Backend S3 per state (commentato)
-  outputs.tf           # Output (IP, instance ID, SSH command)
+  gcs_backend.tf       # Backend GCS per state (commentato)
+  outputs.tf           # Output (IP, instance name, SSH command)
   scripts/
-    user_data.sh       # Bootstrap script per EC2
+    startup.sh         # Bootstrap script per GCE
 ```
 
 ### VPC e Networking
 
-Una VPC dedicata con subnet pubblica per l'istanza EC2:
+Una VPC dedicata con subnet per l'istanza GCE:
 
 ```hcl
-resource "aws_vpc" "main" {
-  cidr_block           = "10.0.0.0/16"
-  enable_dns_hostnames = true
-  enable_dns_support   = true
-
-  tags = {
-    Name    = "md-vault-vpc"
-    Project = "md-vault"
-  }
+resource "google_compute_network" "main" {
+  name                    = "md-vault-vpc"
+  auto_create_subnetworks = false
 }
 
-resource "aws_subnet" "public" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.1.0/24"
-  availability_zone       = "${var.aws_region}a"
-  map_public_ip_on_launch = true
-}
-
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
+resource "google_compute_subnetwork" "public" {
+  name          = "md-vault-subnet"
+  ip_cidr_range = "10.0.1.0/24"
+  region        = var.gcp_region
+  network       = google_compute_network.main.id
 }
 ```
 
-### Security Group
+### Firewall Rules
 
-Il Security Group e volutamente restrittivo grazie al Cloudflare Tunnel:
+Le firewall rules sono volutamente restrittive grazie al Cloudflare Tunnel:
 
 ```hcl
-resource "aws_security_group" "md_vault" {
-  name        = "md-vault-sg"
-  description = "Security group for MD Vault EC2"
-  vpc_id      = aws_vpc.main.id
+resource "google_compute_firewall" "allow_ssh" {
+  name    = "md-vault-allow-ssh"
+  network = google_compute_network.main.name
 
-  # SSH - ristretto al solo IP personale
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = [var.ssh_allowed_ip]
-    description = "SSH access"
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
   }
 
-  # Tutto il traffico uscente (necessario per il tunnel, apt, etc.)
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+  source_ranges = [var.ssh_allowed_ip]
+  target_tags   = ["md-vault"]
+}
+
+resource "google_compute_firewall" "allow_egress" {
+  name      = "md-vault-allow-egress"
+  network   = google_compute_network.main.name
+  direction = "EGRESS"
+
+  allow {
+    protocol = "all"
   }
+
+  destination_ranges = ["0.0.0.0/0"]
+  target_tags        = ["md-vault"]
 }
 ```
 
-**Nessuna porta HTTP/HTTPS aperta in ingresso.** Tutto il traffico web arriva attraverso il Cloudflare Tunnel (connessione uscente dal pod `cloudflared`). L'unica porta inbound e la 22 (SSH), ristretta al solo IP personale.
+**Nessuna porta HTTP/HTTPS aperta in ingresso.** Tutto il traffico web arriva attraverso il Cloudflare Tunnel (connessione uscente dal pod `cloudflared`). L'unica porta inbound e la 22 (SSH), ristretta al solo IP personale tramite `target_tags`.
 
-### EC2
+### GCE Instance
 
 ```hcl
-resource "aws_instance" "md_vault" {
-  ami                    = data.aws_ami.ubuntu.id
-  instance_type          = var.instance_type    # t3.small (2 vCPU, 2GB RAM)
-  key_name               = aws_key_pair.md_vault.key_name
-  subnet_id              = aws_subnet.public.id
-  vpc_security_group_ids = [aws_security_group.md_vault.id]
+resource "google_compute_instance" "md_vault" {
+  name         = "md-vault"
+  machine_type = var.machine_type    # e2-small (2 vCPU, 2GB RAM)
+  zone         = var.gcp_zone
 
-  root_block_device {
-    volume_size = 30      # 30GB gp3
-    volume_type = "gp3"
-    encrypted   = true    # Volume crittografato
+  tags = ["md-vault"]
+
+  boot_disk {
+    initialize_params {
+      image = "ubuntu-os-cloud/ubuntu-2204-lts"
+      size  = 30        # 30GB pd-ssd
+      type  = "pd-ssd"
+    }
   }
 
-  user_data = file("${path.module}/scripts/user_data.sh")
+  network_interface {
+    subnetwork = google_compute_subnetwork.public.id
+    access_config {}    # IP pubblico effimero
+  }
+
+  metadata = {
+    ssh-keys = "mdvault:${var.ssh_public_key}"
+  }
+
+  metadata_startup_script = file("${path.module}/scripts/startup.sh")
 }
 ```
 
-L'AMI e l'ultima Ubuntu 22.04 LTS di Canonical. Il volume root e 30GB gp3 con crittografia abilitata.
+L'immagine e Ubuntu 22.04 LTS. Il disco boot e 30GB pd-ssd. L'utente SSH `mdvault` e configurato tramite metadata.
 
 ### Cloudflare Tunnel e DNS
 
 ```hcl
 resource "cloudflare_tunnel" "md_vault" {
-  account_id = var.cloudflare_zone_id
+  account_id = var.cloudflare_account_id
   name       = "md-vault"
   secret     = random_password.tunnel_secret.result
 }
 
 resource "cloudflare_tunnel_config" "md_vault" {
-  account_id = var.cloudflare_zone_id
+  account_id = var.cloudflare_account_id
   tunnel_id  = cloudflare_tunnel.md_vault.id
 
   config {
     ingress_rule {
       hostname = var.domain           # mdvault.site
-      service  = "http://localhost:80"
+      service  = "http://ingress-nginx-controller.ingress-nginx.svc.cluster.local:80"
     }
     ingress_rule {
       service = "http_status:404"     # catch-all
@@ -960,22 +970,23 @@ resource "cloudflare_record" "vault" {
 }
 ```
 
-Il record DNS CNAME punta al tunnel Cloudflare con proxy abilitato, nascondendo l'IP reale dell'EC2.
+Il record DNS CNAME punta al tunnel Cloudflare con proxy abilitato, nascondendo l'IP reale della VM.
 
-### Perche AWS t3.small
+### Perche GCP e2-small
 
 | Aspetto | Dettaglio |
 |---|---|
-| vCPU | 2 (burstable) |
+| vCPU | 2 (shared-core) |
 | RAM | 2GB (sufficiente per K3s + tutti i pod) |
-| Rete | Fino a 5 Gbps |
-| Costo | ~15-18 EUR/mese on-demand, meno con Reserved |
-| Storage | EBS gp3 incluso |
+| Rete | Fino a 1 Gbps |
+| Costo | Coperto dai $300 di crediti gratuiti GCP |
+| Storage | pd-ssd 30GB |
 
-La `t3.small` offre il miglior rapporto costo/risorse per un progetto di questa natura:
+La `e2-small` offre il miglior rapporto costo/risorse per un progetto di questa natura:
 - 2GB di RAM sono sufficienti per K3s (~300-400MB), Nginx Ingress (~120MB), e i pod applicativi (~300MB totali), con margine per spike
-- Il modello burstable e ideale per un'applicazione con traffico sporadico
-- La regione `eu-south-1` (Milano) offre la latenza minima per utenti in Italia
+- Il modello shared-core e ideale per un'applicazione con traffico sporadico
+- La regione `europe-west8` (Milano) offre la latenza minima per utenti in Italia
+- I $300 di crediti gratuiti GCP coprono diversi mesi di utilizzo
 
 ### Perche K3s invece di K8s full
 
@@ -990,9 +1001,9 @@ La `t3.small` offre il miglior rapporto costo/risorse per un progetto di questa 
 
 Con 2GB di RAM totali, K8s full non lascerebbe risorse sufficienti per i pod applicativi. K3s e la scelta naturale per un deployment single-node: stesso API Kubernetes, stessi manifest, ma footprint ridotto.
 
-### User Data (Bootstrap Script)
+### Startup Script (Bootstrap)
 
-Lo script di bootstrap eseguito al primo avvio dell'EC2:
+Lo script di bootstrap eseguito al primo avvio della VM GCE:
 
 ```bash
 #!/bin/bash
@@ -1001,7 +1012,7 @@ set -euo pipefail
 # Installa Docker
 apt-get update -y && apt-get upgrade -y
 curl -fsSL https://get.docker.com | sh
-usermod -aG docker ubuntu
+usermod -aG docker mdvault
 
 # Installa K3s (Traefik disabilitato, usiamo Nginx Ingress)
 curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik \
@@ -1012,26 +1023,44 @@ until kubectl get nodes 2>/dev/null | grep -q " Ready"; do
   sleep 5
 done
 
-# Installa Nginx Ingress Controller
+# Installa Nginx Ingress Controller (baremetal, no cloud LB)
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/\
-controller-v1.9.4/deploy/static/provider/cloud/deploy.yaml
+controller-v1.9.4/deploy/static/provider/baremetal/deploy.yaml
+
+# Patch hostNetwork per cloudflared
+kubectl -n ingress-nginx patch deployment ingress-nginx-controller \
+  --type='json' -p='[{"op":"add","path":"/spec/template/spec/hostNetwork","value":true}]'
+
+# Setup KUBECONFIG per utente mdvault
+echo 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml' >> /home/mdvault/.bashrc
+mkdir -p /home/mdvault/.kube
+cp /etc/rancher/k3s/k3s.yaml /home/mdvault/.kube/config
+chown -R mdvault:mdvault /home/mdvault/.kube
 
 # Crea directory per PersistentVolume
 mkdir -p /opt/md-vault/data
 chown 1000:1000 /opt/md-vault/data
 ```
 
-Traefik (l'ingress controller predefinito di K3s) e disabilitato perche usiamo Nginx Ingress Controller per maggiore flessibilita e familiarita.
+Traefik (l'ingress controller predefinito di K3s) e disabilitato perche usiamo Nginx Ingress Controller per maggiore flessibilita e familiarita. L'Nginx Ingress usa il provider `baremetal` (nessun cloud LoadBalancer), con `hostNetwork` abilitato per permettere a cloudflared di raggiungere il controller su localhost.
 
 ### Variabili Terraform
 
 ```hcl
-variable "aws_region" {
-  default = "eu-south-1"
+variable "gcp_project" {
+  default = "mdvault"
 }
 
-variable "instance_type" {
-  default = "t3.small"
+variable "gcp_region" {
+  default = "europe-west8"
+}
+
+variable "gcp_zone" {
+  default = "europe-west8-a"
+}
+
+variable "machine_type" {
+  default = "e2-small"
 }
 
 variable "domain" {
@@ -1042,27 +1071,31 @@ variable "cloudflare_api_token" {
   sensitive = true
 }
 
+variable "cloudflare_account_id" {}
 variable "cloudflare_zone_id" {}
 variable "ssh_public_key" {}
 variable "ssh_allowed_ip" {}
 ```
 
-Le variabili sensibili (`cloudflare_api_token`) sono marcate come `sensitive = true` per evitare che vengano stampate nei log di Terraform. I valori sono forniti via file `terraform.tfvars` (escluso da git).
+Le variabili sensibili (`cloudflare_api_token`) sono marcate come `sensitive = true` per evitare che vengano stampate nei log di Terraform. I valori sono forniti via file `terraform.tfvars` (escluso da git). La variabile `ssh_allowed_ip` include una validazione CIDR.
 
-### Backend S3 per lo State
+### Backend GCS per lo State
 
-Il backend S3 per lo state Terraform e predisposto ma commentato, da attivare dopo la creazione del bucket:
+Il backend GCS per lo state Terraform e predisposto ma commentato, da attivare dopo la creazione del bucket:
 
 ```hcl
 # terraform {
-#   backend "s3" {
-#     bucket         = "md-vault-terraform-state"
-#     key            = "terraform.tfstate"
-#     region         = "eu-south-1"
-#     dynamodb_table = "md-vault-terraform-lock"
-#     encrypt        = true
+#   backend "gcs" {
+#     bucket = "md-vault-terraform-state"
+#     prefix = "terraform/state"
 #   }
 # }
+```
+
+Per creare il bucket:
+```bash
+gcloud storage buckets create gs://md-vault-terraform-state \
+  --project=mdvault --location=europe-west8 --uniform-bucket-level-access
 ```
 
 ---
@@ -1164,7 +1197,7 @@ spec:
       storage: 5Gi
 ```
 
-`persistentVolumeReclaimPolicy: Retain` garantisce che i dati non vengano cancellati se il PVC viene eliminato. La directory host `/opt/md-vault/data` e creata dallo script `user_data.sh` con permessi corretti (UID 1000).
+`persistentVolumeReclaimPolicy: Retain` garantisce che i dati non vengano cancellati se il PVC viene eliminato. La directory host `/opt/md-vault/data` e creata dallo script `startup.sh` con permessi corretti (UID 1000).
 
 ### Deployment API
 
@@ -1433,7 +1466,7 @@ Il CronJob esegue ogni notte alle 03:00 UTC. Monta il volume dati in sola lettur
 | **RAM disponibile** | **2048Mi** | - |
 | **Margine** | **~1200Mi** | - |
 
-Con la t3.small da 2GB, il margine e ampio per gestire spike di traffico e il job di backup notturno (64-128Mi temporanei).
+Con la e2-small da 2GB, il margine e ampio per gestire spike di traffico e il job di backup notturno (64-128Mi temporanei).
 
 ---
 
@@ -1536,7 +1569,7 @@ validate-k8s:
           python3 -c "
         import yaml, sys
         with open(sys.argv[1]) as fh:
-            yaml.safe_load(fh)
+            list(yaml.safe_load_all(fh))
         " "$f" || exit 1
         done
 ```
@@ -1599,14 +1632,14 @@ Inoltre, il codice usa metodi DOM sicuri (`textContent`, `createElement`, `appen
 
 ### Cloudflare Tunnel (zero porte inbound)
 
-Il Cloudflare Tunnel elimina la necessita di aprire porte HTTP/HTTPS sul Security Group AWS:
+Il Cloudflare Tunnel elimina la necessita di aprire porte HTTP/HTTPS nelle firewall rules GCP:
 
 - **Nessuna porta 80/443 aperta**: il traffico web arriva attraverso una connessione *uscente* dal pod `cloudflared`
 - **IP nascosto**: il record DNS CNAME punta al tunnel, non all'IP della VM
 - **SSL/TLS gestito da Cloudflare**: certificato automatico, nessuna configurazione cert-manager
 - **DDoS protection**: inclusa nel piano gratuito di Cloudflare
 
-L'unica porta inbound e la 22 (SSH), ristretta a un singolo IP via Security Group.
+L'unica porta inbound e la 22 (SSH), ristretta a un singolo IP via firewall rule con target tag.
 
 ### Kubernetes Secrets
 
@@ -1748,7 +1781,7 @@ Le librerie esterne (marked.js, DOMPurify, PDF.js, mammoth.js, SheetJS) sono car
 
 Alternative considerate e scartate:
 - **cert-manager + Let's Encrypt**: richiede porte 80/443 aperte, complessita aggiuntiva
-- **AWS ALB**: costo significativo (~$16/mese minimo), overkill per un singolo server
+- **GCP Load Balancer**: costo significativo, overkill per un singolo server
 - **Nginx proxy con certbot**: gestione certificati manuale, porte aperte
 
 ### Perche non un framework frontend (React, Vue, etc.)
@@ -1770,8 +1803,8 @@ Per un'applicazione a singolo utente con UI relativamente semplice, un framework
 
 ### Prerequisiti
 
-1. Istanza EC2 provisionata con Terraform (o manualmente)
-2. K3s installato e funzionante (via `user_data.sh`)
+1. Istanza GCE provisionata con Terraform (o manualmente)
+2. K3s installato e funzionante (via `startup.sh`)
 3. Nginx Ingress Controller installato
 4. Docker installato sulla VM
 5. File `k8s/secrets.yaml` creato a partire dal template
@@ -1781,8 +1814,8 @@ Per un'applicazione a singolo utente con UI relativamente semplice, un framework
 #### 1. Clonare il repository sulla VM
 
 ```bash
-ssh ubuntu@<IP_EC2>
-git clone https://github.com/<user>/md_vault.git
+ssh -i ~/.ssh/md-vault mdvault@<IP_GCE>
+git clone https://github.com/MK023/md_vault.git
 cd md_vault
 ```
 
@@ -1968,13 +2001,13 @@ md_vault/
     providers.tf
     variables.tf
     vpc.tf
-    security_groups.tf
-    ec2.tf
+    firewall.tf
+    compute.tf
     cloudflare.tf
-    s3_backend.tf
+    gcs_backend.tf
     outputs.tf
     scripts/
-      user_data.sh
+      startup.sh
   scripts/
     deploy.sh
     backup.py
