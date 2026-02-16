@@ -1,0 +1,218 @@
+<mxfile host="app.diagrams.net" modified="2026-02-16T00:00:00.000Z" agent="draw.io" version="22.0.0" type="device">
+  <diagram id="md-vault-architecture" name="Architettura MD Vault">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Browser Client -->
+        <mxCell id="client" value="Browser Client&#xa;(utente)" style="shape=mxgraph.cisco.computers_and_peripherals.laptop;sketch=0;html=1;whiteSpace=wrap;fontSize=12;fontStyle=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="710" y="20" width="80" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Cloudflare Edge -->
+        <mxCell id="cf-edge" value="Cloudflare Edge&#xa;SSL/TLS + DDoS + Cache&#xa;DNS: mdvault.site" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=11;arcSize=20;" vertex="1" parent="1">
+          <mxGeometry x="640" y="130" width="220" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow: Client -> Cloudflare -->
+        <mxCell id="arrow-client-cf" value="HTTPS" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#d6b656;fontStyle=1;fontSize=10;" edge="1" parent="1" source="client" target="cf-edge">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Cloudflare Tunnel Label -->
+        <mxCell id="cf-tunnel-label" value="Cloudflare Tunnel&#xa;(connessione uscente, crittografata)" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=10;fontStyle=2;fontColor=#FF8000;" vertex="1" parent="1">
+          <mxGeometry x="630" y="210" width="240" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- AWS EC2 Box -->
+        <mxCell id="ec2-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;dashPattern=8 4;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="280" y="270" width="940" height="640" as="geometry" />
+        </mxCell>
+
+        <!-- EC2 Label -->
+        <mxCell id="ec2-label" value="AWS EC2 t3.small — Ubuntu 22.04 — eu-south-1 (Milano)&#xa;2 vCPU, 2GB RAM, 30GB gp3 (crittografato)" style="text;html=1;align=left;verticalAlign=top;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=11;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="290" y="275" width="380" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- K3s Cluster Box -->
+        <mxCell id="k3s-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=2;arcSize=6;" vertex="1" parent="1">
+          <mxGeometry x="320" y="330" width="870" height="550" as="geometry" />
+        </mxCell>
+
+        <!-- K3s Label -->
+        <mxCell id="k3s-label" value="K3s Cluster (namespace: md-vault)&#xa;Traefik disabilitato" style="text;html=1;align=left;verticalAlign=top;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=11;fontStyle=1;fontColor=#6A0DAD;" vertex="1" parent="1">
+          <mxGeometry x="330" y="335" width="240" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Cloudflared Pod -->
+        <mxCell id="cloudflared-pod" value="Pod: cloudflared&#xa;cloudflare/cloudflared:2024.6.1&#xa;32-64Mi RAM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=0;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="650" y="385" width="200" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow: Cloudflare -> Cloudflared Pod -->
+        <mxCell id="arrow-cf-tunnel" value="" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#FF8000;dashed=1;dashPattern=5 3;" edge="1" parent="1" source="cf-edge" target="cloudflared-pod">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Nginx Ingress Controller -->
+        <mxCell id="nginx-ingress" value="Nginx Ingress Controller&#xa;Routing per path&#xa;~120Mi RAM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="620" y="480" width="260" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow: Cloudflared -> Nginx Ingress -->
+        <mxCell id="arrow-cfd-ingress" value="HTTP locale" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#82b366;fontSize=10;" edge="1" parent="1" source="cloudflared-pod" target="nginx-ingress">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Frontend Pod -->
+        <mxCell id="frontend-pod" value="Pod: md-vault-frontend&#xa;nginx:alpine&#xa;HTML + CSS + JS (Win95 UI)&#xa;32-64Mi RAM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=0;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="400" y="590" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- API Pod -->
+        <mxCell id="api-pod" value="Pod: md-vault-api&#xa;FastAPI + uvicorn&#xa;Python 3.11-slim&#xa;128-256Mi RAM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=0;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="880" y="590" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow: Ingress -> Frontend -->
+        <mxCell id="arrow-ingress-fe" value="path: /&#xa;porta 80" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#6c8ebf;fontSize=10;" edge="1" parent="1" source="nginx-ingress" target="frontend-pod">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow: Ingress -> API -->
+        <mxCell id="arrow-ingress-api" value="path: /api&#xa;porta 8000" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#6c8ebf;fontSize=10;" edge="1" parent="1" source="nginx-ingress" target="api-pod">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Frontend nginx proxy to API -->
+        <mxCell id="arrow-fe-api-proxy" value="nginx proxy_pass&#xa;/api/* -> API service" style="endArrow=block;endFill=1;html=1;strokeWidth=1;strokeColor=#999999;dashed=1;fontSize=9;fontColor=#999999;" edge="1" parent="1" source="frontend-pod" target="api-pod">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- SQLite Database -->
+        <mxCell id="sqlite-db" value="SQLite Database&#xa;WAL mode + FTS5&#xa;vault.db" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="920" y="720" width="140" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Upload Directory -->
+        <mxCell id="upload-dir" value="Upload Dir&#xa;/data/uploads/" style="shape=folder;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;tabWidth=40;tabHeight=14;tabPosition=left;" vertex="1" parent="1">
+          <mxGeometry x="760" y="730" width="120" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- PersistentVolume -->
+        <mxCell id="pv-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF0F0;strokeColor=#b85450;dashed=1;dashPattern=5 3;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="730" y="700" width="360" height="130" as="geometry" />
+        </mxCell>
+
+        <!-- PV Label -->
+        <mxCell id="pv-label" value="PersistentVolume: 5Gi&#xa;hostPath: /opt/md-vault/data&#xa;ReclaimPolicy: Retain" style="text;html=1;align=left;verticalAlign=top;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=9;fontStyle=2;fontColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="735" y="702" width="190" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow: API -> SQLite -->
+        <mxCell id="arrow-api-db" value="sqlite3&#xa;connessione locale" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#b85450;fontSize=10;" edge="1" parent="1" source="api-pod" target="sqlite-db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow: API -> Upload Dir -->
+        <mxCell id="arrow-api-upload" value="file I/O" style="endArrow=block;endFill=1;html=1;strokeWidth=1;strokeColor=#b85450;fontSize=9;" edge="1" parent="1" source="api-pod" target="upload-dir">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- CronJob Backup -->
+        <mxCell id="backup-cron" value="CronJob: md-vault-backup&#xa;Schedule: 0 3 * * * (ogni notte)&#xa;SQLite online backup API&#xa;64-128Mi RAM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;fontStyle=0;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="380" y="730" width="240" height="65" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow: Backup -> SQLite (read) -->
+        <mxCell id="arrow-backup-db" value="legge DB&#xa;(readOnly)" style="endArrow=block;endFill=1;html=1;strokeWidth=1;strokeColor=#996185;dashed=1;fontSize=9;" edge="1" parent="1" source="backup-cron" target="sqlite-db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Cloudflare R2 -->
+        <mxCell id="cf-r2" value="Cloudflare R2&#xa;Backup Storage&#xa;(S3-compatible)&#xa;10GB free tier" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.s3;rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=10;labelPosition=right;verticalLabelPosition=middle;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="60" y="730" width="50" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow: Backup -> R2 -->
+        <mxCell id="arrow-backup-r2" value="boto3 upload&#xa;(S3 API)" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#d6b656;fontSize=10;" edge="1" parent="1" source="backup-cron" target="cf-r2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Services Labels -->
+        <mxCell id="svc-fe-label" value="Service: md-vault-frontend&#xa;ClusterIP :80" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=9;fontColor=#6c8ebf;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="405" y="665" width="170" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="svc-api-label" value="Service: md-vault-api&#xa;ClusterIP :8000" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=9;fontColor=#6c8ebf;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="905" y="665" width="140" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Security Group Note -->
+        <mxCell id="sg-note" value="Security Group:&#xa;Inbound: solo SSH (porta 22) da IP specifico&#xa;Nessuna porta HTTP/HTTPS aperta&#xa;Outbound: tutto (per tunnel + aggiornamenti)" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=15;fillColor=#FFFFCC;strokeColor=#999966;fontSize=9;fontStyle=0;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="280" width="210" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Legend -->
+        <mxCell id="legend-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#CCCCCC;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="30" y="20" width="250" height="230" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-title" value="Legenda" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="25" width="70" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-1" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="45" y="60" width="20" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-1-text" value="Cloudflare (tunnel, edge, R2)" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="75" y="53" width="190" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-2" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="45" y="85" width="20" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-2-text" value="Nginx Ingress Controller" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="75" y="78" width="150" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-3" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="45" y="110" width="20" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-3-text" value="Pod applicativi (Frontend, API)" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="75" y="103" width="200" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-4" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="45" y="135" width="20" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-4-text" value="Database e storage persistente" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="75" y="128" width="200" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-5" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;" vertex="1" parent="1">
+          <mxGeometry x="45" y="160" width="20" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-5-text" value="CronJob backup" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="75" y="153" width="110" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-6" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="45" y="185" width="20" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-6-text" value="K3s cluster" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="75" y="178" width="80" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-7" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="45" y="210" width="20" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-7-text" value="Istanza EC2" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="75" y="203" width="80" height="30" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

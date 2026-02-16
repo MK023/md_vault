@@ -1,0 +1,38 @@
+services:
+  api:
+    build: ./api
+    ports:
+      - "8000:8000"
+    environment:
+      - JWT_SECRET=dev-secret-change-me
+      - ADMIN_PASSWORD=admin
+      - DB_PATH=/data/vault.db
+      - UPLOAD_DIR=/data/uploads
+    volumes:
+      - vault-data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    volumes:
+      - ./frontend/nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+    restart: unless-stopped
+
+volumes:
+  vault-data:

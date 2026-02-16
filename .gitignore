@@ -1,0 +1,70 @@
+# Secrets & credentials
+k8s/secrets.yaml
+terraform/terraform.tfvars
+terraform/*.auto.tfvars
+.env
+.env.*
+*.pem
+*.key
+*.crt
+credentials.json
+service-account.json
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+.eggs/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Database
+vault.db
+*.db
+*.db-wal
+*.db-shm
+data/
+
+# Uploads
+uploads/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# Docker
+*.log
+
+# Node (se qualcuno installa roba nel frontend)
+node_modules/

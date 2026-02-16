@@ -1,0 +1,58 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: md-vault-backup
+  namespace: md-vault
+spec:
+  schedule: "0 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          containers:
+            - name: backup
+              image: python:3.11-slim
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  pip install -q boto3 &&
+                  python /scripts/backup.py
+              env:
+                - name: DB_PATH
+                  value: "/data/vault.db"
+                - name: R2_ENDPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: md-vault-secrets
+                      key: R2_ENDPOINT
+                      optional: true
+              resources:
+                requests:
+                  memory: "64Mi"
+                  cpu: "50m"
+                limits:
+                  memory: "128Mi"
+                  cpu: "200m"
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+                - name: scripts
+                  mountPath: /scripts
+          restartPolicy: OnFailure
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: md-vault-data
+            - name: scripts
+              configMap:
+                name: md-vault-backup-script
+                optional: true
