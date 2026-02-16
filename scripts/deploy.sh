@@ -1,33 +1,75 @@
 #!/bin/bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+
 echo "=== MD Vault Deploy ==="
+
+# Detect environment: k3d (local) or k3s (cloud)
+if command -v k3d >/dev/null 2>&1 && k3d cluster list 2>/dev/null | grep -q "md-vault"; then
+  ENV="k3d"
+  echo "Environment: k3d (local)"
+elif command -v k3s >/dev/null 2>&1; then
+  ENV="k3s"
+  echo "Environment: k3s (cloud)"
+else
+  echo "ERROR: Neither k3d cluster 'md-vault' nor k3s found."
+  echo "  Local:  ./scripts/start.sh  (creates k3d cluster)"
+  echo "  Cloud:  install K3s on the server"
+  exit 1
+fi
 
 # Build Docker images
 echo "[1/5] Building API image..."
-docker build -t md-vault-api:latest ./api
+docker build -t md-vault-api:latest "$ROOT_DIR/api"
 
 echo "[2/5] Building Frontend image..."
-docker build -t md-vault-frontend:latest ./frontend
+docker build -t md-vault-frontend:latest "$ROOT_DIR/frontend"
 
-# Import images into K3s
-echo "[3/5] Importing images into K3s..."
-docker save md-vault-api:latest | sudo k3s ctr images import -
-docker save md-vault-frontend:latest | sudo k3s ctr images import -
+# Import images
+echo "[3/5] Importing images into $ENV..."
+if [ "$ENV" = "k3d" ]; then
+  k3d image import md-vault-api:latest md-vault-frontend:latest -c md-vault
+else
+  docker save md-vault-api:latest | sudo k3s ctr images import -
+  docker save md-vault-frontend:latest | sudo k3s ctr images import -
+fi
+
+# Check secrets exist
+if [ ! -f "$ROOT_DIR/k8s/secrets.yaml" ]; then
+  echo ""
+  echo "WARNING: k8s/secrets.yaml not found!"
+  echo "  cp k8s/secrets.yaml.example k8s/secrets.yaml"
+  echo "  # Edit with your actual secrets"
+  echo ""
+  read -p "Continue without secrets? (y/N) " -n 1 -r
+  echo
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    exit 1
+  fi
+fi
 
 # Apply K8s manifests
 echo "[4/5] Applying Kubernetes manifests..."
-kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/secrets.yaml
-kubectl apply -f k8s/configmap.yaml
-kubectl apply -f k8s/pv-pvc.yaml
-kubectl apply -f k8s/api-deployment.yaml
-kubectl apply -f k8s/api-service.yaml
-kubectl apply -f k8s/frontend-deployment.yaml
-kubectl apply -f k8s/frontend-service.yaml
-kubectl apply -f k8s/cloudflared-deployment.yaml
-kubectl apply -f k8s/ingress.yaml
-kubectl apply -f k8s/backup-cronjob.yaml
+kubectl apply -f "$ROOT_DIR/k8s/namespace.yaml"
+[ -f "$ROOT_DIR/k8s/secrets.yaml" ] && kubectl apply -f "$ROOT_DIR/k8s/secrets.yaml"
+kubectl apply -f "$ROOT_DIR/k8s/configmap.yaml"
+kubectl apply -f "$ROOT_DIR/k8s/pv-pvc.yaml"
+kubectl apply -f "$ROOT_DIR/k8s/api-deployment.yaml"
+kubectl apply -f "$ROOT_DIR/k8s/api-service.yaml"
+kubectl apply -f "$ROOT_DIR/k8s/frontend-deployment.yaml"
+kubectl apply -f "$ROOT_DIR/k8s/frontend-service.yaml"
+kubectl apply -f "$ROOT_DIR/k8s/ingress.yaml"
+
+# Cloudflared only if tunnel token is configured
+if kubectl get secret md-vault-secrets -n md-vault -o jsonpath='{.data.CLOUDFLARE_TUNNEL_TOKEN}' 2>/dev/null | grep -q .; then
+  kubectl apply -f "$ROOT_DIR/k8s/cloudflared-deployment.yaml"
+else
+  echo "SKIP: cloudflared (no CLOUDFLARE_TUNNEL_TOKEN in secrets)"
+fi
+
+kubectl apply -f "$ROOT_DIR/k8s/backup-cronjob.yaml"
 
 # Restart deployments to pick up new images
 echo "[5/5] Restarting deployments..."
@@ -38,3 +80,9 @@ echo ""
 echo "=== Deploy complete! ==="
 echo "Checking pod status..."
 kubectl get pods -n md-vault
+
+if [ "$ENV" = "k3d" ]; then
+  echo ""
+  echo "Access locally: http://localhost"
+  echo "Stop cluster:   ./scripts/stop.sh"
+fi
