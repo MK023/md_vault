@@ -236,6 +236,9 @@
         mainWindow.style.display = "flex";
         taskbar.style.display = "none";
         hideDesktopIcons();
+        sysinfoOverlay.style.display = "none";
+        var ro = document.getElementById("recycle-overlay");
+        if (ro) ro.style.display = "none";
     });
 
     maximizeBtn.addEventListener("click", function (e) {
@@ -1416,11 +1419,8 @@
         }
     });
 
-    // My Computer — double-click to show system info (restores window if minimized)
+    // My Computer — double-click to show system info dialog (window stays minimized)
     iconMyComputer.addEventListener("dblclick", function () {
-        mainWindow.style.display = "flex";
-        taskbar.style.display = "none";
-        hideDesktopIcons();
         sysinfoTable.textContent = "";
         var loadingRow = document.createElement("tr");
         var loadingCell = document.createElement("td");
@@ -1473,20 +1473,18 @@
         sysinfoOverlay.style.display = "none";
     });
 
-    // Recycle Bin — double-click shows empty message (restores window if minimized)
+    // Recycle Bin — double-click shows empty message in a dialog (window stays minimized)
+    var recycleOverlay = document.getElementById("recycle-overlay");
     iconRecycle.addEventListener("dblclick", function () {
-        mainWindow.style.display = "flex";
-        taskbar.style.display = "none";
-        hideDesktopIcons();
-        var msg = document.createElement("div");
-        msg.className = "welcome-msg";
-        var h = document.createElement("h2");
-        h.textContent = "Cestino";
-        var p = document.createElement("p");
-        p.textContent = "Il Cestino \u00e8 vuoto.";
-        msg.appendChild(h);
-        msg.appendChild(p);
-        setDocContainerContent([msg]);
+        if (recycleOverlay) {
+            recycleOverlay.style.display = "flex";
+        }
+    });
+    document.getElementById("recycle-close").addEventListener("click", function () {
+        recycleOverlay.style.display = "none";
+    });
+    document.getElementById("recycle-ok").addEventListener("click", function () {
+        recycleOverlay.style.display = "none";
     });
 
     // --- Init ---

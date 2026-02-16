@@ -282,6 +282,25 @@
         </div>
     </div>
 
+    <!-- Recycle Bin Dialog -->
+    <div id="recycle-overlay" class="overlay" style="display:none;">
+        <div class="win-dialog" style="min-width:300px;">
+            <div class="title-bar">
+                <span class="title-bar-text">Cestino</span>
+                <div class="title-bar-controls">
+                    <button aria-label="Close" id="recycle-close">&times;</button>
+                </div>
+            </div>
+            <div class="dialog-body" style="flex-direction:column; align-items:center;">
+                <div style="font-size:48px;">🗑️</div>
+                <p style="margin:12px 0;">Il Cestino è vuoto.</p>
+                <div class="dialog-buttons">
+                    <button id="recycle-ok" class="win-btn">OK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Win95 Taskbar -->
     <div id="taskbar" class="win-taskbar" style="display:none;">
         <button id="taskbar-btn" class="taskbar-item">MD Vault</button>
