@@ -3,12 +3,8 @@ services:
     build: ./backend
     ports:
       - "8000:8000"
-    environment:
-      - JWT_SECRET=dev-secret-change-me
-      - ADMIN_PASSWORD=admin
-      - DB_PATH=/data/vault.db
-      - UPLOAD_DIR=/data/uploads
-      - SENTRY_DSN=https://1d5556927867eb5d24212d5a5edcee91@o4510562690859008.ingest.de.sentry.io/4510896156377168
+    env_file:
+      - .env
     volumes:
       - vault-data:/data
     logging:
