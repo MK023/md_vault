@@ -236,7 +236,13 @@
     document.getElementById("btn-upload").addEventListener("click", function () {
         closeAllMenus();
         uploadFileInput.value = "";
-        uploadProjectInput.value = "";
+        // Pre-fill project from currently selected document's folder
+        var currentProject = "";
+        if (currentDocId) {
+            var curDoc = documents.find(function (d) { return d.id === currentDocId; });
+            if (curDoc && curDoc.project) currentProject = curDoc.project;
+        }
+        uploadProjectInput.value = currentProject;
         uploadTagsInput.value = "";
         uploadError.textContent = "";
         uploadOverlay.style.display = "flex";
@@ -251,38 +257,43 @@
     });
 
     async function doUpload() {
-        var file = uploadFileInput.files[0];
-        if (!file) {
+        var files = uploadFileInput.files;
+        if (!files || files.length === 0) {
             uploadError.textContent = "Select a file first";
             return;
         }
-        uploadError.textContent = "Uploading...";
-        var formData = new FormData();
-        formData.append("file", file);
-        if (uploadProjectInput.value.trim()) {
-            formData.append("project", uploadProjectInput.value.trim());
-        }
-        if (uploadTagsInput.value.trim()) {
-            formData.append("tags", uploadTagsInput.value.trim());
-        }
-        try {
-            var res = await fetch(API + "/docs/upload", {
-                method: "POST",
-                headers: { "Authorization": "Bearer " + token },
-                body: formData,
-            });
-            if (!res.ok) {
-                var err = await res.json();
-                uploadError.textContent = err.detail || "Upload failed";
+        var total = files.length;
+        var lastSavedId = null;
+        var project = uploadProjectInput.value.trim();
+        var tags = uploadTagsInput.value.trim();
+
+        for (var i = 0; i < total; i++) {
+            uploadError.textContent = "Uploading " + (i + 1) + "/" + total + "...";
+            var formData = new FormData();
+            formData.append("file", files[i]);
+            if (project) formData.append("project", project);
+            if (tags) formData.append("tags", tags);
+            try {
+                var res = await fetch(API + "/docs/upload", {
+                    method: "POST",
+                    headers: { "Authorization": "Bearer " + token },
+                    body: formData,
+                });
+                if (!res.ok) {
+                    var err = await res.json();
+                    uploadError.textContent = "Failed on " + files[i].name + ": " + (err.detail || "Upload failed");
+                    return;
+                }
+                var saved = await res.json();
+                lastSavedId = saved.id;
+            } catch (e) {
+                uploadError.textContent = "Connection error on " + files[i].name;
                 return;
             }
-            var saved = await res.json();
-            uploadOverlay.style.display = "none";
-            await loadDocuments();
-            loadDocument(saved.id);
-        } catch (e) {
-            uploadError.textContent = "Connection error";
         }
+        uploadOverlay.style.display = "none";
+        await loadDocuments();
+        if (lastSavedId) loadDocument(lastSavedId);
     }
 
     btnRefresh.addEventListener("click", function () {
@@ -460,6 +471,12 @@
         file.addEventListener("dragend", function () {
             file.classList.remove("dragging");
         });
+        // Right-click context menu on files
+        file.addEventListener("contextmenu", function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            showFileContextMenu(e.clientX, e.clientY, doc);
+        });
         return file;
     }
 
@@ -478,35 +495,44 @@
         }
     }
 
-    // --- Tree ---
+    // --- Tree (nested folder support via "/" separator) ---
+    function buildFolderTree() {
+        var root = { children: {}, docs: [] };
+        function ensurePath(parts) {
+            var node = root;
+            for (var i = 0; i < parts.length; i++) {
+                if (!node.children[parts[i]]) {
+                    node.children[parts[i]] = { children: {}, docs: [] };
+                }
+                node = node.children[parts[i]];
+            }
+            return node;
+        }
+        documents.forEach(function (doc) {
+            if (!doc.project) return;
+            var parts = doc.project.split("/");
+            ensurePath(parts).docs.push(doc);
+        });
+        emptyFolders.forEach(function (path) {
+            ensurePath(path.split("/"));
+        });
+        return root;
+    }
+
     function renderTree() {
         treeContainer.textContent = "";
-        var grouped = {};
-        var ungrouped = [];
+        var ungrouped = documents.filter(function (d) { return !d.project; });
 
-        documents.forEach(function (doc) {
-            if (doc.project) {
-                if (!grouped[doc.project]) grouped[doc.project] = [];
-                grouped[doc.project].push(doc);
-            } else {
-                ungrouped.push(doc);
-            }
+        // Clean emptyFolders: remove paths where docs exist with that exact project
+        emptyFolders = emptyFolders.filter(function (path) {
+            return !documents.some(function (d) { return d.project === path; });
         });
 
-        // Include empty folders
-        emptyFolders.forEach(function (name) {
-            if (!grouped[name]) grouped[name] = [];
-        });
+        var tree = buildFolderTree();
+        var sortedNames = Object.keys(tree.children).sort();
 
-        // Clean emptyFolders: remove ones that now have docs
-        emptyFolders = emptyFolders.filter(function (name) {
-            return !documents.some(function (d) { return d.project === name; });
-        });
-
-        var sortedProjects = Object.keys(grouped).sort();
-
-        sortedProjects.forEach(function (project) {
-            var folder = createTreeFolder(project, grouped[project]);
+        sortedNames.forEach(function (name) {
+            var folder = createTreeFolder(name, name, tree.children[name]);
             treeContainer.appendChild(folder);
         });
 
@@ -544,7 +570,7 @@
         }
         treeContainer.appendChild(unsortedZone);
 
-        if (documents.length === 0 && sortedProjects.length === 0) {
+        if (documents.length === 0 && sortedNames.length === 0) {
             var empty = document.createElement("div");
             empty.className = "tree-no-project";
             empty.textContent = "No documents yet";
@@ -552,17 +578,17 @@
         }
     }
 
-    function createTreeFolder(project, docs) {
+    function createTreeFolder(name, fullPath, node) {
         var folder = document.createElement("div");
         folder.className = "tree-folder";
-        folder.dataset.project = project;
+        folder.dataset.project = fullPath;
 
         var label = document.createElement("span");
         label.className = "tree-folder-icon";
-        label.textContent = project;
+        label.textContent = name;
         folder.appendChild(label);
 
-        // Drop target
+        // Drop target — drops set project to this folder's full path
         folder.addEventListener("dragover", function (e) {
             e.preventDefault();
             e.stopPropagation();
@@ -578,22 +604,33 @@
             e.stopPropagation();
             folder.classList.remove("drag-over");
             var docId = e.dataTransfer.getData("text/plain");
-            if (docId) moveDocument(parseInt(docId), project);
+            if (docId) moveDocument(parseInt(docId), fullPath);
         });
 
         // Right-click context menu
         folder.addEventListener("contextmenu", function (e) {
             e.preventDefault();
             e.stopPropagation();
-            showFolderContextMenu(e.clientX, e.clientY, project, docs);
+            showFolderContextMenu(e.clientX, e.clientY, fullPath, node);
         });
 
         var children = document.createElement("div");
         children.className = "tree-children";
-        (docs || []).forEach(function (doc) {
+
+        // Render sub-folders first
+        var sortedChildNames = Object.keys(node.children).sort();
+        sortedChildNames.forEach(function (childName) {
+            var childPath = fullPath + "/" + childName;
+            children.appendChild(createTreeFolder(childName, childPath, node.children[childName]));
+        });
+
+        // Then render docs in this folder
+        (node.docs || []).forEach(function (doc) {
             children.appendChild(createTreeFile(doc));
         });
-        if (docs.length === 0) {
+
+        // Empty hint only if no sub-folders and no docs
+        if (sortedChildNames.length === 0 && node.docs.length === 0) {
             var hint = document.createElement("div");
             hint.className = "tree-no-project";
             hint.textContent = "(empty)";
@@ -601,14 +638,16 @@
         }
         folder.appendChild(children);
 
-        folder.addEventListener("click", function () {
+        // Toggle collapse only when clicking on the label itself
+        label.addEventListener("click", function (e) {
+            e.stopPropagation();
             folder.classList.toggle("collapsed");
         });
 
         return folder;
     }
 
-    // --- Folder context menu ---
+    // --- Context menus (files + folders) ---
     var ctxMenu = null;
 
     function hideContextMenu() {
@@ -620,7 +659,7 @@
 
     document.addEventListener("click", hideContextMenu);
 
-    function showFolderContextMenu(x, y, project, docs) {
+    function showFileContextMenu(x, y, doc) {
         hideContextMenu();
         ctxMenu = document.createElement("div");
         ctxMenu.className = "dropdown-menu show";
@@ -629,13 +668,62 @@
         ctxMenu.style.top = y + "px";
         ctxMenu.style.zIndex = "300";
 
+        var editBtn = document.createElement("button");
+        editBtn.className = "dropdown-item";
+        editBtn.textContent = "Edit";
+        editBtn.addEventListener("click", function (e) {
+            e.stopPropagation();
+            hideContextMenu();
+            apiFetch("/docs/" + doc.id).then(function (res) {
+                return res.json();
+            }).then(function (fullDoc) {
+                openEditor(fullDoc);
+            });
+        });
+
+        var deleteBtn = document.createElement("button");
+        deleteBtn.className = "dropdown-item";
+        deleteBtn.textContent = "Delete";
+        deleteBtn.addEventListener("click", function (e) {
+            e.stopPropagation();
+            hideContextMenu();
+            apiFetch("/docs/" + doc.id).then(function (res) {
+                return res.json();
+            }).then(function (fullDoc) {
+                confirmDelete(fullDoc);
+            });
+        });
+
+        ctxMenu.appendChild(editBtn);
+        ctxMenu.appendChild(deleteBtn);
+        document.body.appendChild(ctxMenu);
+    }
+
+    function showFolderContextMenu(x, y, fullPath, node) {
+        hideContextMenu();
+        ctxMenu = document.createElement("div");
+        ctxMenu.className = "dropdown-menu show";
+        ctxMenu.style.position = "fixed";
+        ctxMenu.style.left = x + "px";
+        ctxMenu.style.top = y + "px";
+        ctxMenu.style.zIndex = "300";
+
+        var subfolderBtn = document.createElement("button");
+        subfolderBtn.className = "dropdown-item";
+        subfolderBtn.textContent = "New Subfolder";
+        subfolderBtn.addEventListener("click", function (e) {
+            e.stopPropagation();
+            hideContextMenu();
+            promptNewSubfolder(fullPath);
+        });
+
         var renameBtn = document.createElement("button");
         renameBtn.className = "dropdown-item";
         renameBtn.textContent = "Rename Folder";
         renameBtn.addEventListener("click", function (e) {
             e.stopPropagation();
             hideContextMenu();
-            promptRenameFolder(project);
+            promptRenameFolder(fullPath);
         });
 
         var deleteBtn = document.createElement("button");
@@ -644,12 +732,28 @@
         deleteBtn.addEventListener("click", function (e) {
             e.stopPropagation();
             hideContextMenu();
-            confirmDeleteFolder(project, docs);
+            confirmDeleteFolder(fullPath, node);
         });
 
+        ctxMenu.appendChild(subfolderBtn);
         ctxMenu.appendChild(renameBtn);
         ctxMenu.appendChild(deleteBtn);
         document.body.appendChild(ctxMenu);
+    }
+
+    function promptNewSubfolder(parentPath) {
+        folderNameInput.value = "";
+        pendingFolderAction = function () {
+            var name = folderNameInput.value.trim();
+            if (!name) return;
+            var newPath = parentPath + "/" + name;
+            if (!emptyFolders.includes(newPath)) {
+                emptyFolders.push(newPath);
+            }
+            renderTree();
+        };
+        folderOverlay.style.display = "flex";
+        folderNameInput.focus();
     }
 
     function promptRenameFolder(oldName) {
@@ -664,39 +768,57 @@
         folderNameInput.select();
     }
 
-    async function renameFolder(oldName, newName) {
-        // Update all docs in the old project to new project name
-        var docsInFolder = documents.filter(function (d) { return d.project === oldName; });
-        for (var i = 0; i < docsInFolder.length; i++) {
-            await apiFetch("/docs/" + docsInFolder[i].id, {
+    async function renameFolder(oldPath, newPath) {
+        // Update all docs whose project matches or starts with oldPath + "/"
+        var docsToUpdate = documents.filter(function (d) {
+            return d.project === oldPath || (d.project && d.project.startsWith(oldPath + "/"));
+        });
+        for (var i = 0; i < docsToUpdate.length; i++) {
+            var updatedProject;
+            if (docsToUpdate[i].project === oldPath) {
+                updatedProject = newPath;
+            } else {
+                updatedProject = newPath + docsToUpdate[i].project.substring(oldPath.length);
+            }
+            await apiFetch("/docs/" + docsToUpdate[i].id, {
                 method: "PUT",
-                body: { project: newName },
+                body: { project: updatedProject },
             });
         }
-        // Update emptyFolders
-        var idx = emptyFolders.indexOf(oldName);
-        if (idx !== -1) {
-            emptyFolders[idx] = newName;
-        }
+        // Update emptyFolders with prefix matching
+        emptyFolders = emptyFolders.map(function (p) {
+            if (p === oldPath) return newPath;
+            if (p.startsWith(oldPath + "/")) return newPath + p.substring(oldPath.length);
+            return p;
+        });
         await loadDocuments();
     }
 
-    function confirmDeleteFolder(project, docs) {
-        if (docs && docs.length > 0) {
-            deleteMsg.textContent = 'Delete folder "' + project + '"? Its ' + docs.length + ' document(s) will move to Unsorted.';
+    function collectAllDocs(node) {
+        var result = node.docs.slice();
+        Object.keys(node.children).forEach(function (k) {
+            result = result.concat(collectAllDocs(node.children[k]));
+        });
+        return result;
+    }
+
+    function confirmDeleteFolder(fullPath, node) {
+        var allDocs = collectAllDocs(node);
+        if (allDocs.length > 0) {
+            deleteMsg.textContent = 'Delete folder "' + fullPath + '"? Its ' + allDocs.length + ' document(s) will move to Unsorted.';
         } else {
-            deleteMsg.textContent = 'Delete empty folder "' + project + '"?';
+            deleteMsg.textContent = 'Delete empty folder "' + fullPath + '"?';
         }
         pendingDeleteAction = async function () {
-            if (docs && docs.length > 0) {
-                for (var i = 0; i < docs.length; i++) {
-                    await apiFetch("/docs/" + docs[i].id, {
-                        method: "PUT",
-                        body: { project: null },
-                    });
-                }
+            for (var i = 0; i < allDocs.length; i++) {
+                await apiFetch("/docs/" + allDocs[i].id, {
+                    method: "PUT",
+                    body: { project: null },
+                });
             }
-            emptyFolders = emptyFolders.filter(function (n) { return n !== project; });
+            emptyFolders = emptyFolders.filter(function (p) {
+                return p !== fullPath && !p.startsWith(fullPath + "/");
+            });
             await loadDocuments();
         };
         deleteOverlay.style.display = "flex";
@@ -914,15 +1036,24 @@
         var xmlText = await res.text();
         container.textContent = "";
 
-        // Use draw.io embed viewer via iframe
-        var xmlB64 = btoa(unescape(encodeURIComponent(xmlText)));
+        // Use blob URL with embedded viewer-static.min.js to avoid URL length limits
+        // JSON.stringify handles all special chars (newlines, quotes, backslashes)
+        // then HTML-escape for the single-quoted attribute
+        var jsonConfig = JSON.stringify({ xml: xmlText });
+        var attrSafe = jsonConfig.replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/</g, '&lt;');
+        var blob = new Blob([
+            '<!DOCTYPE html><html><body>' +
+            '<div class="mxgraph" data-mxgraph=\'' + attrSafe + '\'></div>' +
+            '<script src="https://viewer.diagrams.net/js/viewer-static.min.js"><\/script>' +
+            '</body></html>'
+        ], { type: 'text/html' });
         var iframe = document.createElement("iframe");
         iframe.style.width = "100%";
         iframe.style.height = "600px";
         iframe.style.border = "2px inset var(--bg)";
         iframe.style.background = "#ffffff";
         iframe.frameBorder = "0";
-        iframe.src = "https://viewer.diagrams.net/?highlight=0000ff&nav=1&title=diagram#R" + encodeURIComponent(xmlB64);
+        iframe.src = URL.createObjectURL(blob);
         container.appendChild(iframe);
 
         // Also show raw XML toggle
