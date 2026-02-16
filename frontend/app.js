@@ -5,8 +5,35 @@
     let token = sessionStorage.getItem("md_vault_token");
     let documents = [];
     let currentDocId = null;
+    let currentDoc = null;
     let editingDocId = null;
     var pendingFolderAction = null;
+    var emptyFolders = [];
+    var collapsedPaths = new Set();
+
+    // --- Lazy script loader ---
+    var scriptCache = {};
+    function loadScript(url) {
+        if (scriptCache[url]) return scriptCache[url];
+        scriptCache[url] = new Promise(function (resolve, reject) {
+            var s = document.createElement("script");
+            s.src = url;
+            s.onload = resolve;
+            s.onerror = function () { reject(new Error("Failed to load " + url)); };
+            document.head.appendChild(s);
+        });
+        return scriptCache[url];
+    }
+
+    // --- File icon map (module-level constant) ---
+    var FILE_ICONS = {
+        pdf: "\u{1F4D5} ", doc: "\u{1F4DD} ", docx: "\u{1F4DD} ",
+        xls: "\u{1F4CA} ", xlsx: "\u{1F4CA} ", csv: "\u{1F4CA} ",
+        ppt: "\u{1F4CA} ", pptx: "\u{1F4CA} ",
+        png: "\u{1F5BC} ", jpg: "\u{1F5BC} ", jpeg: "\u{1F5BC} ", gif: "\u{1F5BC} ", svg: "\u{1F5BC} ",
+        md: "\u{1F4C3} ", txt: "\u{1F4C3} ",
+        json: "\u{2699} ", yaml: "\u{2699} ", yml: "\u{2699} ", xml: "\u{2699} ",
+    };
 
     // --- DOM refs ---
     const loginOverlay = document.getElementById("login-overlay");
@@ -68,13 +95,13 @@
 
     // --- Fetch helper ---
     async function apiFetch(path, opts = {}) {
-        const headers = opts.headers || {};
+        var headers = opts.headers || {};
         if (token) headers["Authorization"] = "Bearer " + token;
-        if (opts.body && typeof opts.body === "object") {
+        if (opts.body && typeof opts.body === "object" && !(opts.body instanceof FormData)) {
             headers["Content-Type"] = "application/json";
             opts.body = JSON.stringify(opts.body);
         }
-        const res = await fetch(API + path, { ...opts, headers });
+        var res = await fetch(API + path, { ...opts, headers });
         if (res.status === 401) {
             sessionStorage.removeItem("md_vault_token");
             token = null;
@@ -88,6 +115,8 @@
     function showLogin() {
         loginOverlay.style.display = "flex";
         mainWindow.style.display = "none";
+        taskbar.style.display = "none";
+        desktopIcons.style.display = "none";
         loginError.textContent = "";
         passwordInput.value = "";
         passwordInput.focus();
@@ -96,6 +125,8 @@
     function showMain() {
         loginOverlay.style.display = "none";
         mainWindow.style.display = "flex";
+        taskbar.style.display = "none";
+        desktopIcons.style.display = "none";
         loadDocuments();
     }
 
@@ -169,7 +200,6 @@
                 openMenu(item.btn, item.dd);
             }
         });
-        // Hover to switch when a menu is already open
         item.btn.addEventListener("mouseenter", function () {
             if (menuOpen) {
                 openMenu(item.btn, item.dd);
@@ -179,6 +209,48 @@
 
     document.addEventListener("click", closeAllMenus);
 
+    // --- Window controls (Win95 Minimize / Maximize) ---
+    var minimizeBtn = document.getElementById("minimize-btn");
+    var maximizeBtn = document.getElementById("maximize-btn");
+    var taskbar = document.getElementById("taskbar");
+    var taskbarBtn = document.getElementById("taskbar-btn");
+    var desktopIcons = document.getElementById("desktop-icons");
+    var isMaximized = false;
+
+    function showDesktopIcons() {
+        desktopIcons.style.display = "flex";
+    }
+
+    function hideDesktopIcons() {
+        desktopIcons.style.display = "none";
+    }
+
+    minimizeBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        mainWindow.style.display = "none";
+        taskbar.style.display = "flex";
+        showDesktopIcons();
+    });
+
+    taskbarBtn.addEventListener("click", function () {
+        mainWindow.style.display = "flex";
+        taskbar.style.display = "none";
+        hideDesktopIcons();
+    });
+
+    maximizeBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        if (isMaximized) {
+            mainWindow.classList.remove("maximized");
+            maximizeBtn.textContent = "\u25A1";
+            isMaximized = false;
+        } else {
+            mainWindow.classList.add("maximized");
+            maximizeBtn.textContent = "\u29C9";
+            isMaximized = true;
+        }
+    });
+
     btnNewDoc.addEventListener("click", function () {
         closeAllMenus();
         openEditor(null);
@@ -187,7 +259,6 @@
     // New Folder
     var folderOverlay = document.getElementById("folder-overlay");
     var folderNameInput = document.getElementById("folder-name");
-    var emptyFolders = [];
 
     document.getElementById("btn-new-folder").addEventListener("click", function () {
         closeAllMenus();
@@ -202,7 +273,6 @@
             pendingFolderAction();
             pendingFolderAction = null;
         } else {
-            // Default: create new folder
             var name = folderNameInput.value.trim();
             if (!name) return;
             if (!emptyFolders.includes(name)) {
@@ -236,12 +306,8 @@
     document.getElementById("btn-upload").addEventListener("click", function () {
         closeAllMenus();
         uploadFileInput.value = "";
-        // Pre-fill project from currently selected document's folder
         var currentProject = "";
-        if (currentDocId) {
-            var curDoc = documents.find(function (d) { return d.id === currentDocId; });
-            if (curDoc && curDoc.project) currentProject = curDoc.project;
-        }
+        if (currentDoc && currentDoc.project) currentProject = currentDoc.project;
         uploadProjectInput.value = currentProject;
         uploadTagsInput.value = "";
         uploadError.textContent = "";
@@ -274,9 +340,8 @@
             if (project) formData.append("project", project);
             if (tags) formData.append("tags", tags);
             try {
-                var res = await fetch(API + "/docs/upload", {
+                var res = await apiFetch("/docs/upload", {
                     method: "POST",
-                    headers: { "Authorization": "Bearer " + token },
                     body: formData,
                 });
                 if (!res.ok) {
@@ -337,7 +402,6 @@
             });
             if (res.ok || res.status === 204) {
                 pwOverlay.style.display = "none";
-                // Force re-login with new password
                 sessionStorage.removeItem("md_vault_token");
                 token = null;
                 showLogin();
@@ -362,30 +426,23 @@
         pwOverlay.style.display = "none";
     });
 
-    // Edit menu
+    // Edit menu — uses cached currentDoc instead of API fetch
     document.getElementById("btn-edit-current").addEventListener("click", function () {
         closeAllMenus();
-        if (!currentDocId) return;
-        apiFetch("/docs/" + currentDocId).then(function (res) {
-            return res.json();
-        }).then(function (doc) {
-            openEditor(doc);
-        });
+        if (!currentDoc) return;
+        openEditor(currentDoc);
     });
 
     document.getElementById("btn-delete-current").addEventListener("click", function () {
         closeAllMenus();
-        if (!currentDocId) return;
-        apiFetch("/docs/" + currentDocId).then(function (res) {
-            return res.json();
-        }).then(function (doc) {
-            confirmDelete(doc);
-        });
+        if (!currentDoc) return;
+        confirmDelete(currentDoc);
     });
 
     // View menu
     document.getElementById("btn-expand-all").addEventListener("click", function () {
         closeAllMenus();
+        collapsedPaths.clear();
         treeContainer.querySelectorAll(".tree-folder").forEach(function (f) {
             f.classList.remove("collapsed");
         });
@@ -395,6 +452,8 @@
         closeAllMenus();
         treeContainer.querySelectorAll(".tree-folder").forEach(function (f) {
             f.classList.add("collapsed");
+            var path = f.dataset.project;
+            if (path) collapsedPaths.add(path);
         });
     });
 
@@ -424,6 +483,10 @@
             const res = await apiFetch("/docs");
             documents = await res.json();
             statusCount.textContent = documents.length + " document" + (documents.length !== 1 ? "s" : "");
+            // Clean emptyFolders: remove paths where docs exist with that exact project
+            emptyFolders = emptyFolders.filter(function (path) {
+                return !documents.some(function (d) { return d.project === path; });
+            });
             renderTree();
         } catch (err) {
             // handled by apiFetch
@@ -434,15 +497,7 @@
     function getFileIcon(doc) {
         if (!doc.file_name) return "\u{1F4C4} ";
         var ext = doc.file_name.split(".").pop().toLowerCase();
-        var icons = {
-            pdf: "\u{1F4D5} ", doc: "\u{1F4DD} ", docx: "\u{1F4DD} ",
-            xls: "\u{1F4CA} ", xlsx: "\u{1F4CA} ", csv: "\u{1F4CA} ",
-            ppt: "\u{1F4CA} ", pptx: "\u{1F4CA} ",
-            png: "\u{1F5BC} ", jpg: "\u{1F5BC} ", jpeg: "\u{1F5BC} ", gif: "\u{1F5BC} ", svg: "\u{1F5BC} ",
-            md: "\u{1F4C3} ", txt: "\u{1F4C3} ",
-            json: "\u{2699} ", yaml: "\u{2699} ", yml: "\u{2699} ", xml: "\u{2699} ",
-        };
-        return icons[ext] || "\u{1F4CE} ";
+        return FILE_ICONS[ext] || "\u{1F4CE} ";
     }
 
     function getFileExt(doc) {
@@ -450,36 +505,24 @@
         return doc.file_name.split(".").pop().toLowerCase();
     }
 
-    // --- Drag & Drop helpers ---
-    function createTreeFile(doc) {
-        var file = document.createElement("div");
-        file.className = "tree-file tree-file-custom-icon";
-        file.draggable = true;
-        file.dataset.docId = doc.id;
-        if (doc.id === currentDocId) file.classList.add("active");
-        file.textContent = getFileIcon(doc) + doc.title;
-        file.addEventListener("click", function (e) {
-            e.stopPropagation();
-            loadDocument(doc.id);
-        });
-        file.addEventListener("dragstart", function (e) {
-            e.stopPropagation();
-            e.dataTransfer.setData("text/plain", String(doc.id));
-            e.dataTransfer.effectAllowed = "move";
-            file.classList.add("dragging");
-        });
-        file.addEventListener("dragend", function () {
-            file.classList.remove("dragging");
-        });
-        // Right-click context menu on files
-        file.addEventListener("contextmenu", function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            showFileContextMenu(e.clientX, e.clientY, doc);
-        });
-        return file;
+    function getTreeLabel(doc) {
+        var ext = getFileExt(doc);
+        if (!ext) return doc.title;
+        if (doc.title.toLowerCase().endsWith("." + ext)) return doc.title;
+        return doc.title + "." + ext;
     }
 
+    // --- Active tree item (no full re-render) ---
+    function setActiveTreeItem(docId) {
+        var prev = treeContainer.querySelector(".tree-file.active");
+        if (prev) prev.classList.remove("active");
+        if (docId) {
+            var next = treeContainer.querySelector('[data-doc-id="' + docId + '"]');
+            if (next) next.classList.add("active");
+        }
+    }
+
+    // --- Drag & Drop helpers ---
     async function moveDocument(docId, newProject) {
         try {
             var res = await apiFetch("/docs/" + docId, {
@@ -520,13 +563,14 @@
     }
 
     function renderTree() {
+        // Save collapsed state before clearing
+        treeContainer.querySelectorAll(".tree-folder.collapsed").forEach(function (f) {
+            var path = f.dataset.project;
+            if (path) collapsedPaths.add(path);
+        });
+
         treeContainer.textContent = "";
         var ungrouped = documents.filter(function (d) { return !d.project; });
-
-        // Clean emptyFolders: remove paths where docs exist with that exact project
-        emptyFolders = emptyFolders.filter(function (path) {
-            return !documents.some(function (d) { return d.project === path; });
-        });
 
         var tree = buildFolderTree();
         var sortedNames = Object.keys(tree.children).sort();
@@ -540,24 +584,11 @@
         var unsortedZone = document.createElement("div");
         unsortedZone.className = "tree-unsorted-zone";
         unsortedZone.dataset.project = "";
-        unsortedZone.addEventListener("dragover", function (e) {
-            e.preventDefault();
-            unsortedZone.classList.add("drag-over");
-        });
-        unsortedZone.addEventListener("dragleave", function () {
-            unsortedZone.classList.remove("drag-over");
-        });
-        unsortedZone.addEventListener("drop", function (e) {
-            e.preventDefault();
-            unsortedZone.classList.remove("drag-over");
-            var docId = e.dataTransfer.getData("text/plain");
-            if (docId) moveDocument(parseInt(docId), null);
-        });
 
         if (ungrouped.length > 0) {
             var sep = document.createElement("div");
             sep.className = "tree-no-project";
-            sep.textContent = "— Unsorted —";
+            sep.textContent = "\u2014 Unsorted \u2014";
             unsortedZone.appendChild(sep);
             ungrouped.forEach(function (doc) {
                 unsortedZone.appendChild(createTreeFile(doc));
@@ -565,7 +596,7 @@
         } else {
             var sep = document.createElement("div");
             sep.className = "tree-no-project";
-            sep.textContent = "— Drop here to unsort —";
+            sep.textContent = "\u2014 Drop here to unsort \u2014";
             unsortedZone.appendChild(sep);
         }
         treeContainer.appendChild(unsortedZone);
@@ -578,58 +609,46 @@
         }
     }
 
+    // createTreeFile: DOM only, zero listeners
+    function createTreeFile(doc) {
+        var file = document.createElement("div");
+        file.className = "tree-file tree-file-custom-icon";
+        file.draggable = true;
+        file.dataset.docId = doc.id;
+        if (doc.id === currentDocId) file.classList.add("active");
+        file.textContent = getFileIcon(doc) + getTreeLabel(doc);
+        return file;
+    }
+
+    // createTreeFolder: DOM only, zero listeners
     function createTreeFolder(name, fullPath, node) {
         var folder = document.createElement("div");
         folder.className = "tree-folder";
         folder.dataset.project = fullPath;
+
+        // Restore collapsed state
+        if (collapsedPaths.has(fullPath)) {
+            folder.classList.add("collapsed");
+        }
 
         var label = document.createElement("span");
         label.className = "tree-folder-icon";
         label.textContent = name;
         folder.appendChild(label);
 
-        // Drop target — drops set project to this folder's full path
-        folder.addEventListener("dragover", function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            folder.classList.add("drag-over");
-        });
-        folder.addEventListener("dragleave", function (e) {
-            if (!folder.contains(e.relatedTarget)) {
-                folder.classList.remove("drag-over");
-            }
-        });
-        folder.addEventListener("drop", function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            folder.classList.remove("drag-over");
-            var docId = e.dataTransfer.getData("text/plain");
-            if (docId) moveDocument(parseInt(docId), fullPath);
-        });
-
-        // Right-click context menu
-        folder.addEventListener("contextmenu", function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            showFolderContextMenu(e.clientX, e.clientY, fullPath, node);
-        });
-
         var children = document.createElement("div");
         children.className = "tree-children";
 
-        // Render sub-folders first
         var sortedChildNames = Object.keys(node.children).sort();
         sortedChildNames.forEach(function (childName) {
             var childPath = fullPath + "/" + childName;
             children.appendChild(createTreeFolder(childName, childPath, node.children[childName]));
         });
 
-        // Then render docs in this folder
         (node.docs || []).forEach(function (doc) {
             children.appendChild(createTreeFile(doc));
         });
 
-        // Empty hint only if no sub-folders and no docs
         if (sortedChildNames.length === 0 && node.docs.length === 0) {
             var hint = document.createElement("div");
             hint.className = "tree-no-project";
@@ -638,14 +657,113 @@
         }
         folder.appendChild(children);
 
-        // Toggle collapse only when clicking on the label itself
-        label.addEventListener("click", function (e) {
-            e.stopPropagation();
-            folder.classList.toggle("collapsed");
-        });
-
         return folder;
     }
+
+    // --- Event delegation on treeContainer ---
+    treeContainer.addEventListener("click", function (e) {
+        var fileEl = e.target.closest(".tree-file");
+        if (fileEl) {
+            e.stopPropagation();
+            var docId = parseInt(fileEl.dataset.docId);
+            if (docId) loadDocument(docId);
+            return;
+        }
+        var folderIcon = e.target.closest(".tree-folder-icon");
+        if (folderIcon) {
+            e.stopPropagation();
+            var folder = folderIcon.closest(".tree-folder");
+            if (folder) {
+                folder.classList.toggle("collapsed");
+                var path = folder.dataset.project;
+                if (path) {
+                    if (folder.classList.contains("collapsed")) {
+                        collapsedPaths.add(path);
+                    } else {
+                        collapsedPaths.delete(path);
+                    }
+                }
+            }
+        }
+    });
+
+    treeContainer.addEventListener("contextmenu", function (e) {
+        var fileEl = e.target.closest(".tree-file");
+        if (fileEl) {
+            e.preventDefault();
+            e.stopPropagation();
+            var docId = parseInt(fileEl.dataset.docId);
+            var doc = documents.find(function (d) { return d.id === docId; });
+            if (doc) showFileContextMenu(e.clientX, e.clientY, doc);
+            return;
+        }
+        var folderEl = e.target.closest(".tree-folder");
+        if (folderEl) {
+            e.preventDefault();
+            e.stopPropagation();
+            var fullPath = folderEl.dataset.project;
+            // Rebuild the node for this folder path
+            var tree = buildFolderTree();
+            var node = tree;
+            var parts = fullPath.split("/");
+            for (var i = 0; i < parts.length; i++) {
+                node = (node.children && node.children[parts[i]]) || { children: {}, docs: [] };
+            }
+            showFolderContextMenu(e.clientX, e.clientY, fullPath, node);
+        }
+    });
+
+    treeContainer.addEventListener("dragstart", function (e) {
+        var fileEl = e.target.closest(".tree-file");
+        if (fileEl) {
+            e.stopPropagation();
+            e.dataTransfer.setData("text/plain", fileEl.dataset.docId);
+            e.dataTransfer.effectAllowed = "move";
+            fileEl.classList.add("dragging");
+        }
+    });
+
+    treeContainer.addEventListener("dragend", function (e) {
+        var fileEl = e.target.closest(".tree-file");
+        if (fileEl) {
+            fileEl.classList.remove("dragging");
+        }
+    });
+
+    treeContainer.addEventListener("dragover", function (e) {
+        var folderEl = e.target.closest(".tree-folder");
+        var unsortedEl = e.target.closest(".tree-unsorted-zone");
+        if (folderEl || unsortedEl) {
+            e.preventDefault();
+            e.stopPropagation();
+            (folderEl || unsortedEl).classList.add("drag-over");
+        }
+    });
+
+    treeContainer.addEventListener("dragleave", function (e) {
+        var folderEl = e.target.closest(".tree-folder");
+        var unsortedEl = e.target.closest(".tree-unsorted-zone");
+        var target = folderEl || unsortedEl;
+        if (target && !target.contains(e.relatedTarget)) {
+            target.classList.remove("drag-over");
+        }
+    });
+
+    treeContainer.addEventListener("drop", function (e) {
+        var folderEl = e.target.closest(".tree-folder");
+        var unsortedEl = e.target.closest(".tree-unsorted-zone");
+        var target = folderEl || unsortedEl;
+        if (target) {
+            e.preventDefault();
+            e.stopPropagation();
+            target.classList.remove("drag-over");
+            var docId = e.dataTransfer.getData("text/plain");
+            if (docId) {
+                var newProject = target.dataset.project || null;
+                moveDocument(parseInt(docId), newProject);
+            }
+        }
+    });
 
     // --- Context menus (files + folders) ---
     var ctxMenu = null;
@@ -659,7 +777,7 @@
 
     document.addEventListener("click", hideContextMenu);
 
-    function showFileContextMenu(x, y, doc) {
+    function createContextMenu(x, y, items) {
         hideContextMenu();
         ctxMenu = document.createElement("div");
         ctxMenu.className = "dropdown-menu show";
@@ -667,78 +785,45 @@
         ctxMenu.style.left = x + "px";
         ctxMenu.style.top = y + "px";
         ctxMenu.style.zIndex = "300";
-
-        var editBtn = document.createElement("button");
-        editBtn.className = "dropdown-item";
-        editBtn.textContent = "Edit";
-        editBtn.addEventListener("click", function (e) {
-            e.stopPropagation();
-            hideContextMenu();
-            apiFetch("/docs/" + doc.id).then(function (res) {
-                return res.json();
-            }).then(function (fullDoc) {
-                openEditor(fullDoc);
+        items.forEach(function (item) {
+            var btn = document.createElement("button");
+            btn.className = "dropdown-item";
+            btn.textContent = item.label;
+            btn.addEventListener("click", function (e) {
+                e.stopPropagation();
+                hideContextMenu();
+                item.action();
             });
+            ctxMenu.appendChild(btn);
         });
-
-        var deleteBtn = document.createElement("button");
-        deleteBtn.className = "dropdown-item";
-        deleteBtn.textContent = "Delete";
-        deleteBtn.addEventListener("click", function (e) {
-            e.stopPropagation();
-            hideContextMenu();
-            apiFetch("/docs/" + doc.id).then(function (res) {
-                return res.json();
-            }).then(function (fullDoc) {
-                confirmDelete(fullDoc);
-            });
-        });
-
-        ctxMenu.appendChild(editBtn);
-        ctxMenu.appendChild(deleteBtn);
         document.body.appendChild(ctxMenu);
     }
 
+    function showFileContextMenu(x, y, doc) {
+        createContextMenu(x, y, [
+            { label: "Edit", action: function () { openEditorForDoc(doc.id); } },
+            { label: "Delete", action: function () { confirmDeleteFromList(doc.id); } },
+        ]);
+    }
+
+    function openEditorForDoc(docId) {
+        apiFetch("/docs/" + docId).then(function (res) {
+            return res.json();
+        }).then(openEditor);
+    }
+
+    function confirmDeleteFromList(docId) {
+        apiFetch("/docs/" + docId).then(function (res) {
+            return res.json();
+        }).then(confirmDelete);
+    }
+
     function showFolderContextMenu(x, y, fullPath, node) {
-        hideContextMenu();
-        ctxMenu = document.createElement("div");
-        ctxMenu.className = "dropdown-menu show";
-        ctxMenu.style.position = "fixed";
-        ctxMenu.style.left = x + "px";
-        ctxMenu.style.top = y + "px";
-        ctxMenu.style.zIndex = "300";
-
-        var subfolderBtn = document.createElement("button");
-        subfolderBtn.className = "dropdown-item";
-        subfolderBtn.textContent = "New Subfolder";
-        subfolderBtn.addEventListener("click", function (e) {
-            e.stopPropagation();
-            hideContextMenu();
-            promptNewSubfolder(fullPath);
-        });
-
-        var renameBtn = document.createElement("button");
-        renameBtn.className = "dropdown-item";
-        renameBtn.textContent = "Rename Folder";
-        renameBtn.addEventListener("click", function (e) {
-            e.stopPropagation();
-            hideContextMenu();
-            promptRenameFolder(fullPath);
-        });
-
-        var deleteBtn = document.createElement("button");
-        deleteBtn.className = "dropdown-item";
-        deleteBtn.textContent = "Delete Folder";
-        deleteBtn.addEventListener("click", function (e) {
-            e.stopPropagation();
-            hideContextMenu();
-            confirmDeleteFolder(fullPath, node);
-        });
-
-        ctxMenu.appendChild(subfolderBtn);
-        ctxMenu.appendChild(renameBtn);
-        ctxMenu.appendChild(deleteBtn);
-        document.body.appendChild(ctxMenu);
+        createContextMenu(x, y, [
+            { label: "New Subfolder", action: function () { promptNewSubfolder(fullPath); } },
+            { label: "Rename Folder", action: function () { promptRenameFolder(fullPath); } },
+            { label: "Delete Folder", action: function () { confirmDeleteFolder(fullPath, node); } },
+        ]);
     }
 
     function promptNewSubfolder(parentPath) {
@@ -769,7 +854,6 @@
     }
 
     async function renameFolder(oldPath, newPath) {
-        // Update all docs whose project matches or starts with oldPath + "/"
         var docsToUpdate = documents.filter(function (d) {
             return d.project === oldPath || (d.project && d.project.startsWith(oldPath + "/"));
         });
@@ -785,12 +869,23 @@
                 body: { project: updatedProject },
             });
         }
-        // Update emptyFolders with prefix matching
         emptyFolders = emptyFolders.map(function (p) {
             if (p === oldPath) return newPath;
             if (p.startsWith(oldPath + "/")) return newPath + p.substring(oldPath.length);
             return p;
         });
+        // Update collapsed paths
+        var newCollapsed = new Set();
+        collapsedPaths.forEach(function (p) {
+            if (p === oldPath) {
+                newCollapsed.add(newPath);
+            } else if (p.startsWith(oldPath + "/")) {
+                newCollapsed.add(newPath + p.substring(oldPath.length));
+            } else {
+                newCollapsed.add(p);
+            }
+        });
+        collapsedPaths = newCollapsed;
         await loadDocuments();
     }
 
@@ -819,6 +914,7 @@
             emptyFolders = emptyFolders.filter(function (p) {
                 return p !== fullPath && !p.startsWith(fullPath + "/");
             });
+            collapsedPaths.delete(fullPath);
             await loadDocuments();
         };
         deleteOverlay.style.display = "flex";
@@ -831,7 +927,10 @@
             if (!res.ok) return;
             const doc = await res.json();
             currentDocId = doc.id;
-            renderTree();
+            currentDoc = doc;
+
+            // Just toggle active class, don't re-render tree
+            setActiveTreeItem(doc.id);
 
             // Build document view using safe DOM methods
             var frag = document.createDocumentFragment();
@@ -846,21 +945,18 @@
             var actions = document.createElement("div");
             actions.className = "doc-actions";
 
-            // Download button for file-backed docs
             if (doc.file_name) {
                 var dlBtn = document.createElement("button");
                 dlBtn.className = "win-btn-sm";
                 dlBtn.textContent = "Download";
                 dlBtn.addEventListener("click", function () {
-                    var a = document.createElement("a");
-                    a.href = API + "/docs/" + doc.id + "/file";
-                    a.download = doc.file_name;
-                    // Add auth via fetch+blob
-                    fetch(API + "/docs/" + doc.id + "/file", {
-                        headers: { "Authorization": "Bearer " + token }
-                    }).then(function (r) { return r.blob(); }).then(function (blob) {
+                    apiFetch(filePath(doc.id)).then(function (r) {
+                        return r.blob();
+                    }).then(function (blob) {
+                        var a = document.createElement("a");
                         var url = URL.createObjectURL(blob);
                         a.href = url;
+                        a.download = doc.file_name;
                         a.click();
                         URL.revokeObjectURL(url);
                     });
@@ -912,11 +1008,10 @@
             var ext = getFileExt(doc);
 
             if (!doc.file_name || ext === "md" || ext === "txt") {
-                // Markdown / plain text
+                // Markdown / plain text — sanitized via DOMPurify
                 var safeHtml = renderMarkdownSafe(doc.content || "");
                 body.appendChild(createSanitizedFragment(safeHtml));
             } else {
-                // File-based: render async
                 body.textContent = "Loading preview...";
                 renderFilePreview(doc, body);
             }
@@ -929,30 +1024,32 @@
     }
 
     function createSanitizedFragment(sanitizedHtml) {
+        // sanitizedHtml is ALWAYS pre-sanitized via DOMPurify before reaching here
         var template = document.createElement("template");
-        template.innerHTML = sanitizedHtml;
+        template.innerHTML = sanitizedHtml;  // safe: input is DOMPurify-sanitized
         return template.content;
     }
 
     // --- File preview renderers ---
+    function filePath(docId) {
+        return "/docs/" + docId + "/file";
+    }
+
     async function renderFilePreview(doc, container) {
         var ext = getFileExt(doc);
         try {
-            var fileUrl = API + "/docs/" + doc.id + "/file";
-            var headers = { "Authorization": "Bearer " + token };
-
             if (ext === "pdf") {
-                await renderPdf(fileUrl, headers, container);
+                await renderPdf(doc.id, container);
             } else if (ext === "docx" || ext === "doc") {
-                await renderDocx(fileUrl, headers, container);
+                await renderDocx(doc.id, container);
             } else if (ext === "xlsx" || ext === "xls" || ext === "csv") {
-                await renderSpreadsheet(fileUrl, headers, container, ext);
+                await renderSpreadsheet(doc.id, container);
             } else if (["png", "jpg", "jpeg", "gif", "svg"].indexOf(ext) !== -1) {
-                await renderImage(fileUrl, headers, container);
+                await renderImage(doc.id, container);
             } else if (ext === "drawio") {
-                await renderDrawio(fileUrl, headers, container);
+                await renderDrawio(doc.id, container);
             } else if (["json", "yaml", "yml", "xml", "html", "htm"].indexOf(ext) !== -1) {
-                renderCode(doc.content, container, ext);
+                renderCode(doc.content, container);
             } else {
                 container.textContent = "Preview not available for this file type. Use Download.";
             }
@@ -961,9 +1058,10 @@
         }
     }
 
-    async function renderPdf(url, headers, container) {
+    async function renderPdf(docId, container) {
+        await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js");
         container.textContent = "";
-        var res = await fetch(url, { headers: headers });
+        var res = await apiFetch(filePath(docId));
         var data = await res.arrayBuffer();
 
         pdfjsLib.GlobalWorkerOptions.workerSrc =
@@ -985,9 +1083,10 @@
         }
     }
 
-    async function renderDocx(url, headers, container) {
+    async function renderDocx(docId, container) {
+        await loadScript("https://cdn.jsdelivr.net/npm/mammoth@1/mammoth.browser.min.js");
         container.textContent = "Converting...";
-        var res = await fetch(url, { headers: headers });
+        var res = await apiFetch(filePath(docId));
         var data = await res.arrayBuffer();
         var result = await mammoth.convertToHtml({ arrayBuffer: data });
         container.textContent = "";
@@ -995,9 +1094,10 @@
         container.appendChild(createSanitizedFragment(safeHtml));
     }
 
-    async function renderSpreadsheet(url, headers, container, ext) {
+    async function renderSpreadsheet(docId, container) {
+        await loadScript("https://cdn.jsdelivr.net/npm/xlsx@0.18/dist/xlsx.full.min.js");
         container.textContent = "Loading spreadsheet...";
-        var res = await fetch(url, { headers: headers });
+        var res = await apiFetch(filePath(docId));
         var data = await res.arrayBuffer();
         var workbook = XLSX.read(data, { type: "array" });
         container.textContent = "";
@@ -1013,32 +1113,32 @@
 
             var wrapper = document.createElement("div");
             wrapper.className = "spreadsheet-view";
+            // DOMPurify-sanitized before template.innerHTML
             var safeHtml = DOMPurify.sanitize(htmlStr);
             wrapper.appendChild(createSanitizedFragment(safeHtml));
             container.appendChild(wrapper);
         });
     }
 
-    async function renderImage(url, headers, container) {
+    async function renderImage(docId, container) {
         container.textContent = "";
-        var res = await fetch(url, { headers: headers });
+        var res = await apiFetch(filePath(docId));
         var blob = await res.blob();
         var img = document.createElement("img");
-        img.src = URL.createObjectURL(blob);
+        var blobUrl = URL.createObjectURL(blob);
+        img.src = blobUrl;
         img.style.maxWidth = "100%";
         img.style.height = "auto";
+        img.onload = function () { URL.revokeObjectURL(blobUrl); };
         container.appendChild(img);
     }
 
-    async function renderDrawio(url, headers, container) {
+    async function renderDrawio(docId, container) {
         container.textContent = "Loading diagram...";
-        var res = await fetch(url, { headers: headers });
+        var res = await apiFetch(filePath(docId));
         var xmlText = await res.text();
         container.textContent = "";
 
-        // Use blob URL with embedded viewer-static.min.js to avoid URL length limits
-        // JSON.stringify handles all special chars (newlines, quotes, backslashes)
-        // then HTML-escape for the single-quoted attribute
         var jsonConfig = JSON.stringify({ xml: xmlText });
         var attrSafe = jsonConfig.replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/</g, '&lt;');
         var blob = new Blob([
@@ -1053,10 +1153,11 @@
         iframe.style.border = "2px inset var(--bg)";
         iframe.style.background = "#ffffff";
         iframe.frameBorder = "0";
-        iframe.src = URL.createObjectURL(blob);
+        var blobUrl = URL.createObjectURL(blob);
+        iframe.src = blobUrl;
+        iframe.onload = function () { URL.revokeObjectURL(blobUrl); };
         container.appendChild(iframe);
 
-        // Also show raw XML toggle
         var toggle = document.createElement("button");
         toggle.className = "win-btn-sm";
         toggle.textContent = "Show XML Source";
@@ -1079,7 +1180,7 @@
         container.appendChild(xmlPre);
     }
 
-    function renderCode(content, container, ext) {
+    function renderCode(content, container) {
         container.textContent = "";
         var pre = document.createElement("pre");
         var code = document.createElement("code");
@@ -1160,7 +1261,6 @@
     function confirmDelete(doc) {
         deleteMsg.textContent = 'Delete "' + doc.title + '"?';
         pendingDeleteAction = async function () {
-            // Preserve the folder if this was the last file in it
             if (doc.project) {
                 var othersInFolder = documents.filter(function (d) {
                     return d.project === doc.project && d.id !== doc.id;
@@ -1171,6 +1271,7 @@
             }
             await apiFetch("/docs/" + doc.id, { method: "DELETE" });
             currentDocId = null;
+            currentDoc = null;
             showWelcome();
             await loadDocuments();
         };
@@ -1215,8 +1316,11 @@
     async function doSearch() {
         const q = searchInput.value.trim();
         if (!q) {
-            loadDocuments();
-            if (currentDocId) loadDocument(currentDocId);
+            // Empty search: re-render tree from cache, re-render current doc from cache
+            renderTree();
+            if (currentDoc) {
+                loadDocument(currentDoc.id);
+            }
             return;
         }
 
@@ -1250,7 +1354,7 @@
 
                     var snippet = document.createElement("div");
                     snippet.className = "search-result-snippet";
-                    // Snippet comes from FTS5 with <mark> tags, sanitize it
+                    // DOMPurify-sanitized before template.innerHTML
                     var safeSnippet = sanitize(r.snippet);
                     snippet.appendChild(createSanitizedFragment(safeSnippet));
                     item.appendChild(snippet);
@@ -1287,6 +1391,102 @@
 
     document.addEventListener("mouseup", function () {
         isResizing = false;
+    });
+
+    // --- Desktop Icons ---
+    var iconMyComputer = document.getElementById("icon-mycomputer");
+    var iconRecycle = document.getElementById("icon-recycle");
+    var sysinfoOverlay = document.getElementById("sysinfo-overlay");
+    var sysinfoTable = document.getElementById("sysinfo-table");
+    var allDesktopIcons = [iconMyComputer, iconRecycle];
+
+    // Click to select, double-click to open
+    allDesktopIcons.forEach(function (icon) {
+        icon.addEventListener("click", function (e) {
+            e.stopPropagation();
+            allDesktopIcons.forEach(function (ic) { ic.classList.remove("selected"); });
+            icon.classList.add("selected");
+        });
+    });
+
+    // Click on desktop background deselects
+    document.body.addEventListener("click", function (e) {
+        if (!e.target.closest(".desktop-icon")) {
+            allDesktopIcons.forEach(function (ic) { ic.classList.remove("selected"); });
+        }
+    });
+
+    // My Computer — double-click to show system info (restores window if minimized)
+    iconMyComputer.addEventListener("dblclick", function () {
+        mainWindow.style.display = "flex";
+        taskbar.style.display = "none";
+        hideDesktopIcons();
+        sysinfoTable.textContent = "";
+        var loadingRow = document.createElement("tr");
+        var loadingCell = document.createElement("td");
+        loadingCell.colSpan = 2;
+        loadingCell.textContent = "Caricamento...";
+        loadingRow.appendChild(loadingCell);
+        sysinfoTable.appendChild(loadingRow);
+        sysinfoOverlay.style.display = "flex";
+
+        apiFetch("/system-info").then(function (res) {
+            return res.json();
+        }).then(function (info) {
+            sysinfoTable.textContent = "";
+            var rows = [
+                ["Computer", info.hostname],
+                ["Sistema Operativo", info.os],
+                ["Architettura", info.arch],
+                ["Processori", info.cpu_count],
+                ["Python", info.python],
+                ["SQLite", info.sqlite],
+                ["Database", info.db_size_mb + " MB"],
+                ["Documenti", info.doc_count],
+            ];
+            rows.forEach(function (r) {
+                var tr = document.createElement("tr");
+                var tdLabel = document.createElement("td");
+                tdLabel.className = "sysinfo-label";
+                tdLabel.textContent = r[0] + ":";
+                var tdValue = document.createElement("td");
+                tdValue.textContent = r[1];
+                tr.appendChild(tdLabel);
+                tr.appendChild(tdValue);
+                sysinfoTable.appendChild(tr);
+            });
+        }).catch(function () {
+            sysinfoTable.textContent = "";
+            var errRow = document.createElement("tr");
+            var errCell = document.createElement("td");
+            errCell.colSpan = 2;
+            errCell.textContent = "Errore nel caricamento delle informazioni.";
+            errRow.appendChild(errCell);
+            sysinfoTable.appendChild(errRow);
+        });
+    });
+
+    document.getElementById("sysinfo-close").addEventListener("click", function () {
+        sysinfoOverlay.style.display = "none";
+    });
+    document.getElementById("sysinfo-ok").addEventListener("click", function () {
+        sysinfoOverlay.style.display = "none";
+    });
+
+    // Recycle Bin — double-click shows empty message (restores window if minimized)
+    iconRecycle.addEventListener("dblclick", function () {
+        mainWindow.style.display = "flex";
+        taskbar.style.display = "none";
+        hideDesktopIcons();
+        var msg = document.createElement("div");
+        msg.className = "welcome-msg";
+        var h = document.createElement("h2");
+        h.textContent = "Cestino";
+        var p = document.createElement("p");
+        p.textContent = "Il Cestino \u00e8 vuoto.";
+        msg.appendChild(h);
+        msg.appendChild(p);
+        setDocContainerContent([msg]);
     });
 
     // --- Init ---

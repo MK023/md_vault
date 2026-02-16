@@ -7,9 +7,6 @@
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mammoth@1/mammoth.browser.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18/dist/xlsx.full.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
     <!-- Login Dialog -->
@@ -47,8 +44,8 @@
         <div class="title-bar">
             <span class="title-bar-text">📁 MD Vault</span>
             <div class="title-bar-controls">
-                <button aria-label="Minimize">—</button>
-                <button aria-label="Maximize">□</button>
+                <button aria-label="Minimize" id="minimize-btn">—</button>
+                <button aria-label="Maximize" id="maximize-btn">□</button>
                 <button aria-label="Close" id="logout-btn">×</button>
             </div>
         </div>
@@ -245,6 +242,49 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- Desktop Icons -->
+    <div id="desktop-icons" class="desktop-icons" style="display:none;">
+        <div class="desktop-icon" id="icon-mycomputer">
+            <div class="desktop-icon-img">🖥️</div>
+            <div class="desktop-icon-label">Risorse del<br>Computer</div>
+        </div>
+        <div class="desktop-icon" id="icon-recycle">
+            <div class="desktop-icon-img">🗑️</div>
+            <div class="desktop-icon-label">Cestino</div>
+        </div>
+    </div>
+
+    <!-- System Properties Dialog -->
+    <div id="sysinfo-overlay" class="overlay" style="display:none;">
+        <div class="win-dialog" style="min-width:380px;">
+            <div class="title-bar">
+                <span class="title-bar-text">Risorse del Computer</span>
+                <div class="title-bar-controls">
+                    <button aria-label="Close" id="sysinfo-close">×</button>
+                </div>
+            </div>
+            <div class="dialog-body" style="flex-direction:column;">
+                <div style="text-align:center; margin-bottom:12px;">
+                    <div style="font-size:48px;">🖥️</div>
+                    <div style="font-weight:bold; font-size:14px; margin-top:4px;">MD Vault Server</div>
+                </div>
+                <div class="sysinfo-panel">
+                    <table id="sysinfo-table" class="sysinfo-table">
+                        <tr><td class="sysinfo-label">Caricamento...</td><td></td></tr>
+                    </table>
+                </div>
+                <div class="dialog-buttons">
+                    <button id="sysinfo-ok" class="win-btn">OK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Win95 Taskbar -->
+    <div id="taskbar" class="win-taskbar" style="display:none;">
+        <button id="taskbar-btn" class="taskbar-item">MD Vault</button>
     </div>
 
     <script src="app.js"></script>

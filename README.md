@@ -184,6 +184,7 @@ docker-compose up --build
 | `DELETE` | `/api/docs/{id}`      | Delete document + file   | Yes  |
 | `GET`    | `/api/docs/meta/tags` | List unique tags         | Yes  |
 | `GET`    | `/api/search?q=`      | Full-text search (FTS5)  | Yes  |
+| `GET`    | `/api/system-info`    | Server specs (auth)      | Yes  |
 | `GET`    | `/api/healthz`        | Health check             | No   |
 
 ## Key Features
@@ -192,10 +193,12 @@ docker-compose up --build
 - **File upload** supporting MD, PDF, DOCX, XLSX, images, draw.io (max 50MB)
 - **Integrated viewers** for PDF (PDF.js), DOCX (mammoth.js), spreadsheets (SheetJS), draw.io diagrams
 - **Tree explorer** with drag & drop between folders, context menu for rename/delete
-- **JWT auth** with bcrypt password hashing, 24h token expiry
+- **JWT auth** with bcrypt password hashing, 24h token expiry, per-IP rate limiting on login
 - **Automatic backups** via K8s CronJob to Cloudflare R2
 - **XSS prevention** with DOMPurify on all rendered HTML
 - **Path traversal protection** on file downloads
+- **Lazy loading** of heavy JS libs (PDF.js, mammoth, SheetJS) on first use
+- **Win95 desktop** with minimize/maximize, desktop icons (System Properties, Recycle Bin)
 
 ## License
 

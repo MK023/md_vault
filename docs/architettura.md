@@ -197,20 +197,29 @@ async def lifespan(app: FastAPI):
     init_db()
     yield
 
-app = FastAPI(title="MD Vault", version="1.0.0", lifespan=lifespan)
+_docs_enabled = os.environ.get("DOCS_ENABLED", "").lower() in ("1", "true")
+app = FastAPI(
+    title="MD Vault", version="1.0.0", lifespan=lifespan,
+    docs_url="/api/docs" if _docs_enabled else None,
+    redoc_url=None,
+    openapi_url="/api/openapi.json" if _docs_enabled else None,
+)
 
+_allowed_origins = os.environ.get("CORS_ORIGINS", "https://mdvault.site").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(auth.router)
 app.include_router(documents.router)
 app.include_router(search.router)
 ```
+
+La documentazione Swagger e disabilitata per default in produzione (attivabile con `DOCS_ENABLED=true`). Le origini CORS sono ristrette al dominio di produzione.
 
 ### Configurazione
 
@@ -290,6 +299,7 @@ Il limite di upload e 50MB per file.
 | Metodo | Endpoint | Descrizione | Auth |
 |---|---|---|---|
 | `GET` | `/api/search?q=termine` | Ricerca full-text FTS5 | Si |
+| `GET` | `/api/system-info` | Informazioni server (hostname, OS, CPU, DB size) | Si |
 
 **Esempio ricerca:**
 
@@ -325,13 +335,17 @@ Verifica la connettivita al database SQLite. Usato da Kubernetes come liveness e
 @app.get("/api/healthz")
 def healthz():
     try:
-        conn = get_connection()
-        conn.execute("SELECT 1")
-        conn.close()
+        with get_db() as conn:
+            conn.execute("SELECT 1")
         return {"status": "ok", "db": "connected"}
     except Exception:
-        return {"status": "error", "db": "disconnected"}
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "db": "disconnected"},
+        )
 ```
+
+In caso di errore viene restituito HTTP 503 (non 200), cosi che le Kubernetes probes rilevino correttamente il problema.
 
 ### Autenticazione JWT con bcrypt
 
@@ -440,14 +454,26 @@ Punti chiave:
 Il frontend adotta un'interfaccia utente ispirata a Windows 95, implementata interamente con HTML, CSS e JavaScript vanilla -- senza framework, senza build step, senza node_modules.
 
 L'interfaccia replica fedelmente gli elementi UI di Windows 95:
-- **Finestre** con barra del titolo blu gradiente e pulsanti di controllo (riduci, ingrandisci, chiudi)
+- **Finestre** con barra del titolo blu gradiente e pulsanti di controllo funzionanti (riduci ad icona, ingrandisci, chiudi)
+- **Desktop** con icone (Risorse del Computer, Cestino) visibili quando la finestra e minimizzata
+- **Taskbar** in basso che appare quando la finestra e minimizzata, come in Win95
 - **Menu bar** con dropdown (File, Edit, View, Help) che si aprono al click e switchano all'hover
 - **Pannello tree** a sinistra con struttura a cartelle (progetti) e file (documenti)
 - **Pannello documento** a destra con rendering del contenuto
 - **Status bar** in basso con contatore documenti e barra di ricerca
-- **Dialog modali** con stile Win95 per login, upload, editor, conferma eliminazione
+- **Dialog modali** con stile Win95 per login, upload, editor, conferma eliminazione, proprieta di sistema
 - **Bordi raised/sunken** con il classico effetto 3D tramite border multicolore
 - **Scrollbar** personalizzate in stile retro
+
+### Ottimizzazioni Performance
+
+Il frontend implementa diverse ottimizzazioni per velocita e reattivita:
+
+- **Lazy loading librerie**: mammoth.js (620KB), SheetJS (861KB) e PDF.js (312KB) vengono caricati on-demand al primo utilizzo tramite un helper `loadScript()` con cache Promise, risparmiando ~1.8MB all'avvio
+- **Event delegation**: un singolo set di listener su `treeContainer` gestisce click, context menu e drag & drop per tutti i file e cartelle, invece di listener individuali per ogni elemento
+- **Cache documento**: il documento corrente e salvato in `currentDoc`, evitando fetch API per le operazioni Edit/Delete dal menu
+- **setActiveTreeItem()**: al click su un documento, il tree non viene ricostruito -- viene solo spostata la classe CSS `.active`, mantenendo lo stato di espansione delle cartelle
+- **Stato collapsed preservato**: un Set `collapsedPaths` tiene traccia delle cartelle chiuse e le ri-applica dopo ogni `renderTree()`
 
 ### Colori e variabili CSS
 
@@ -497,7 +523,7 @@ Le cartelle supportano anche un **menu contestuale** (tasto destro) con opzioni 
 
 ### Visualizzatori integrati
 
-Il frontend include viewer per diversi formati di file, tutti caricati da CDN:
+Il frontend include viewer per diversi formati di file, caricati da CDN **on-demand** al primo utilizzo (lazy loading):
 
 | Formato | Libreria | Versione CDN |
 |---|---|---|
@@ -604,6 +630,19 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
+    # JS/CSS/HTML: ETag revalidation + bypass Cloudflare CDN cache
+    location ~* \.(js|css|html)$ {
+        etag on;
+        add_header Cache-Control "no-cache";
+        add_header CDN-Cache-Control "no-store";
+    }
+
+    # Immutable assets (fonts, images, icons): long cache
+    location ~* \.(woff2?|ttf|eot|ico|png|jpg|jpeg|gif|svg|webp)$ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+
     location /api/ {
         proxy_pass http://md-vault-api.md-vault.svc.cluster.local:8000;
         proxy_set_header Host $host;
@@ -613,6 +652,8 @@ server {
     }
 }
 ```
+
+La configurazione include cache headers ottimizzati: i file JS/CSS/HTML usano `ETag` con `no-cache` (il browser rivalidata ad ogni richiesta, scaricando solo se il file e cambiato), mentre font e immagini hanno cache immutabile di 30 giorni. L'header `CDN-Cache-Control: no-store` impedisce a Cloudflare di servire versioni stale di JS/CSS dopo un deploy.
 
 L'uso dell'indirizzo DNS interno Kubernetes (`md-vault-api.md-vault.svc.cluster.local`) permette la risoluzione del servizio senza hardcodare IP.
 
@@ -640,13 +681,18 @@ L'immagine risultante e estremamente leggera: nginx:alpine piu 3 file statici.
 MD Vault utilizza SQLite come database, configurato con Write-Ahead Logging (WAL) per migliorare le performance di lettura concorrente:
 
 ```python
-def get_connection() -> sqlite3.Connection:
+@contextmanager
+def get_db():
     conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row      # Accesso per nome colonna
-    conn.execute("PRAGMA journal_mode=WAL")
+    conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 ```
+
+Il context manager garantisce la chiusura della connessione anche in caso di eccezione. Il WAL mode viene attivato una sola volta in `init_db()` (non per-connection, perche e persistente nel database). All'init viene anche verificata la versione minima di SQLite (>= 3.35.0) necessaria per la clausola `RETURNING`.
 
 Il WAL mode permette letture concorrenti durante le scritture, eliminando i lock in lettura che altrimenti bloccherebbero le query di ricerca FTS5.
 
@@ -740,11 +786,11 @@ if "file_name" not in columns:
     cur.execute("ALTER TABLE documents ADD COLUMN file_type TEXT")
 ```
 
-Questo approccio consente di aggiornare lo schema senza perdere dati esistenti. Il seed dell'utente admin viene creato solo se non esiste gia:
+Questo approccio consente di aggiornare lo schema senza perdere dati esistenti. Il seed dell'utente admin viene creato se non esiste, oppure aggiornato se la password nell'env var e cambiata:
 
 ```python
 existing = cur.execute(
-    "SELECT id FROM users WHERE username = ?", ("admin",)
+    "SELECT id, password_hash FROM users WHERE username = ?", ("admin",)
 ).fetchone()
 if not existing:
     hashed = bcrypt.hashpw(ADMIN_PASSWORD.encode(), bcrypt.gensalt())
@@ -752,7 +798,16 @@ if not existing:
         "INSERT INTO users (username, password_hash) VALUES (?, ?)",
         ("admin", hashed.decode()),
     )
+else:
+    if not bcrypt.checkpw(ADMIN_PASSWORD.encode(), existing["password_hash"].encode()):
+        hashed = bcrypt.hashpw(ADMIN_PASSWORD.encode(), bcrypt.gensalt())
+        cur.execute(
+            "UPDATE users SET password_hash = ? WHERE username = ?",
+            (hashed.decode(), "admin"),
+        )
 ```
+
+Questo garantisce che un cambio di `ADMIN_PASSWORD` nei Kubernetes Secrets venga applicato automaticamente al prossimo restart del pod.
 
 ### Query di ricerca FTS5
 
@@ -1608,6 +1663,30 @@ validate-terraform:
 - **JWT (JSON Web Token)**: ogni richiesta autenticata richiede un token Bearer nell'header `Authorization`. I token scadono dopo 24 ore (configurabile via `JWT_EXPIRY_HOURS`).
 - **bcrypt**: le password sono hashate con bcrypt con salt automatico. Non vengono mai salvate in chiaro.
 - **Algoritmo**: HS256 (HMAC-SHA256) per la firma del JWT.
+
+### Rate limiting login
+
+L'endpoint di login implementa un rate limiting in-memory per IP (10 tentativi ogni 5 minuti):
+
+```python
+_login_attempts: dict[str, list[float]] = defaultdict(list)
+_RATE_LIMIT_WINDOW = 300  # 5 minuti
+_RATE_LIMIT_MAX = 10
+
+def _check_rate_limit(ip: str):
+    now = time.monotonic()
+    _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < _RATE_LIMIT_WINDOW]
+    if len(_login_attempts[ip]) >= _RATE_LIMIT_MAX:
+        raise HTTPException(status_code=429, detail="Too many login attempts")
+    _login_attempts[ip].append(now)
+```
+
+L'IP viene letto dall'header `X-Real-IP` settato da nginx (non `X-Forwarded-For` che puo essere spoofato dal client). Su login riuscito, il contatore viene azzerato.
+
+### CORS e API docs
+
+- **CORS ristretto**: le origini consentite sono configurate tramite env var `CORS_ORIGINS` (default: `https://mdvault.site`). In sviluppo locale si puo impostare `CORS_ORIGINS=http://localhost`.
+- **API docs disabilitati**: Swagger UI e OpenAPI schema sono disabilitati per default in produzione. Attivabili con `DOCS_ENABLED=true` per debug.
 
 ### Protezione da path traversal
 

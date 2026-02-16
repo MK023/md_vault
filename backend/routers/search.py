@@ -1,9 +1,11 @@
 """Router ricerca full-text con SQLite FTS5."""
 
+import sqlite3
+
 from fastapi import APIRouter, Depends, Query
 
 from backend.auth import get_current_user
-from backend.database import get_connection
+from backend.database import get_db
 from backend.models import SearchResult
 
 router = APIRouter(prefix="/api/search", tags=["search"])
@@ -14,22 +16,26 @@ def search(
     q: str = Query(..., min_length=1),
     _user: str = Depends(get_current_user),
 ):
-    conn = get_connection()
-    rows = conn.execute(
-        """
-        SELECT
-            d.id,
-            d.title,
-            snippet(documents_fts, 1, '<mark>', '</mark>', '...', 32) AS snippet,
-            d.project,
-            d.tags
-        FROM documents_fts
-        JOIN documents d ON d.id = documents_fts.rowid
-        WHERE documents_fts MATCH ?
-        ORDER BY rank
-        LIMIT 50
-        """,
-        (q,),
-    ).fetchall()
-    conn.close()
+    # Wrap in double quotes to treat as literal phrase (avoids FTS5 syntax errors)
+    safe_q = '"' + q.replace('"', '""') + '"'
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    d.id,
+                    d.title,
+                    snippet(documents_fts, 1, '<mark>', '</mark>', '...', 32) AS snippet,
+                    d.project,
+                    d.tags
+                FROM documents_fts
+                JOIN documents d ON d.id = documents_fts.rowid
+                WHERE documents_fts MATCH ?
+                ORDER BY rank
+                LIMIT 50
+                """,
+                (safe_q,),
+            ).fetchall()
+    except sqlite3.OperationalError:
+        return []
     return [dict(r) for r in rows]
