@@ -1,162 +1,64 @@
 # MD Vault
 
-A self-hosted Markdown knowledge base with full-text search, served through a Cloudflare Tunnel on a single GCE instance running K3s. Features a nostalgic Windows 95-inspired UI.
+A self-hosted personal knowledge base with full-text search, file management, and a nostalgic Windows 95 UI. Runs on K3s (locally via k3d or on a cloud VM) with Cloudflare Tunnel for secure HTTPS access.
 
-## Architecture Overview
+## Architecture
 
 ```
-                         Internet
-                            |
-                    Cloudflare Tunnel
-                            |
-                  +-------------------+
-                  |  GCE Instance     |
-                  |  (K3s Cluster)    |
-                  |                   |
-                  |  Nginx Ingress    |
-                  |    /         \    |
-                  | Frontend    API   |
-                  | (Nginx)  (FastAPI)|
-                  |              |    |
-                  |           SQLite  |
-                  |          (FTS5)   |
-                  +-------------------+
+                          Internet
+                             |
+                     Cloudflare Tunnel
+                     (zero open ports)
+                             |
+                +------------------------+
+                |     K3s Cluster         |
+                |                        |
+                |   Nginx Ingress        |
+                |     /          \       |
+                |  Frontend      API     |
+                |  (nginx)    (FastAPI)  |
+                |               |        |
+                |            SQLite      |
+                |           (FTS5)       |
+                +------------------------+
 ```
-
-**Request flow:** Browser --> Cloudflare Tunnel --> K3s Nginx Ingress --> Frontend / API pods --> SQLite database
 
 ## Tech Stack
 
-| Component       | Technology                        |
-|-----------------|-----------------------------------|
-| **Backend API** | Python FastAPI + Sentry           |
-| **Database**    | SQLite with FTS5 full-text search |
-| **Frontend**    | Vanilla JS with Windows 95 UI     |
-| **Orchestration** | K3s (lightweight Kubernetes)   |
-| **Infrastructure** | Terraform (Google Cloud)      |
-| **Networking**  | Cloudflare Tunnel (Zero Trust)    |
-| **Backups**     | Cloudflare R2 (S3-compatible)     |
-| **CI/CD**       | GitHub Actions                    |
-
-## Prerequisites
-
-- **Google Cloud** account with a project created (`gcloud auth login`)
-- **Cloudflare account** with a registered domain and API token
-- **Terraform** >= 1.5 installed locally
-- **Docker** installed locally (for building images)
-- **SSH key pair** for VM access
-
-## Quick Start
-
-1. **Clone the repository**
-
-   ```bash
-   git clone https://github.com/MK023/md_vault.git
-   cd md_vault
-   ```
-
-2. **Configure Terraform variables**
-
-   ```bash
-   cd terraform
-   cat > terraform.tfvars <<EOF
-   gcp_project          = "mdvault"
-   gcp_region           = "europe-west8"
-   gcp_zone             = "europe-west8-a"
-   machine_type         = "e2-small"
-   domain               = "mdvault.site"
-   cloudflare_api_token = "your-cloudflare-api-token"
-   cloudflare_account_id = "your-cloudflare-account-id"
-   cloudflare_zone_id   = "your-cloudflare-zone-id"
-   ssh_public_key       = "ssh-ed25519 AAAA..."
-   ssh_allowed_ip       = "your.ip.address/32"
-   EOF
-   ```
-
-3. **Provision the infrastructure**
-
-   ```bash
-   terraform init
-   terraform apply
-   cd ..
-   ```
-
-   This creates a GCE instance with K3s pre-installed via startup script.
-
-4. **SSH into the GCE instance**
-
-   ```bash
-   ssh -i ~/.ssh/md-vault mdvault@<GCE_PUBLIC_IP>
-   ```
-
-5. **Configure Kubernetes secrets**
-
-   ```bash
-   cp k8s/secrets.yaml.example k8s/secrets.yaml
-   nano k8s/secrets.yaml
-   # Fill in: JWT_SECRET, ADMIN_PASSWORD, CLOUDFLARE_TUNNEL_TOKEN, R2_ENDPOINT, SENTRY_DSN
-   ```
-
-6. **Deploy the application**
-
-   ```bash
-   chmod +x scripts/deploy.sh
-   ./scripts/deploy.sh
-   ```
-
-7. **Access your vault**
-
-   Open your browser and navigate to `https://mdvault.site`.
-
-## Local Development
-
-### With Docker Compose
-
-```bash
-docker-compose up --build
-# API at http://localhost:8000, Frontend at http://localhost:3000
-```
-
-### API only
-
-```bash
-cd api
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn api.main:app --reload --port 8000
-```
-
-### Frontend only
-
-```bash
-cd frontend
-python -m http.server 3000
-```
+| Layer            | Technology                         |
+|------------------|------------------------------------|
+| Backend          | FastAPI, SQLite FTS5, JWT + bcrypt  |
+| Frontend         | Vanilla JS/CSS (Win95 theme)       |
+| Orchestration    | K3s via k3d (local) or native      |
+| Infrastructure   | Terraform (Google Cloud)           |
+| Networking       | Cloudflare Tunnel (Zero Trust)     |
+| CI/CD            | GitHub Actions                     |
+| Monitoring       | Sentry                             |
+| Backups          | CronJob + Cloudflare R2            |
 
 ## Project Structure
 
 ```
 md_vault/
-  api/                          # FastAPI backend
-    main.py                     # App entry point + Sentry
-    config.py                   # Env var configuration
-    database.py                 # SQLite + FTS5 setup
-    auth.py                     # JWT + bcrypt auth
-    models.py                   # Pydantic schemas
+  backend/                  # FastAPI backend
+    main.py                 # App entry point + Sentry init
+    config.py               # Env var configuration
+    database.py             # SQLite + FTS5 schema + migrations
+    auth.py                 # JWT + bcrypt authentication
+    models.py               # Pydantic request/response schemas
     routers/
-      auth.py                   # Login, password change
-      documents.py              # CRUD + file upload
-      search.py                 # Full-text search
+      auth.py               # Login + password change
+      documents.py          # CRUD + file upload/download
+      search.py             # Full-text search
     Dockerfile
     requirements.txt
-  frontend/                     # Vanilla JS frontend (Win95 UI)
+  frontend/                 # Win95 UI (zero build step)
     index.html
     style.css
     app.js
     nginx.conf
     Dockerfile
-  k8s/                          # Kubernetes manifests
+  k8s/                      # Kubernetes manifests
     namespace.yaml
     secrets.yaml.example
     configmap.yaml
@@ -168,7 +70,7 @@ md_vault/
     cloudflared-deployment.yaml
     ingress.yaml
     backup-cronjob.yaml
-  terraform/                    # Infrastructure as Code (GCP)
+  terraform/                # IaC (Google Cloud)
     providers.tf
     variables.tf
     vpc.tf
@@ -177,54 +79,124 @@ md_vault/
     cloudflare.tf
     gcs_backend.tf
     outputs.tf
-    scripts/
-      startup.sh
+    scripts/startup.sh
   scripts/
-    deploy.sh                   # Full deploy pipeline
-    backup.py                   # SQLite backup to R2
+    start.sh                # Start k3d cluster
+    stop.sh                 # Graceful shutdown
+    deploy.sh               # Build + deploy (auto-detects k3d/k3s)
+    backup.py               # SQLite backup to R2
   docs/
-    architettura.md             # Technical documentation (IT)
-    architettura.drawio         # Architecture diagram
-  .github/
-    workflows/
-      ci.yml                    # CI pipeline (lint, build, validate)
-  docker-compose.yml
-  pyproject.toml
-  .gitignore
+    architettura.md         # Technical documentation (Italian)
+    architettura.drawio     # Architecture diagram
+```
+
+## Local Development (k3d)
+
+Run the full stack locally with k3d (K3s in Docker). Zero cloud costs, same K8s manifests as production.
+
+### Prerequisites
+
+- Docker Desktop running
+- k3d installed (`brew install k3d` or [direct download](https://k3d.io))
+- kubectl installed
+
+### Quick Start
+
+```bash
+# 1. Start the cluster (creates it on first run)
+./scripts/start.sh
+
+# 2. Create secrets
+cp k8s/secrets.yaml.example k8s/secrets.yaml
+# Edit k8s/secrets.yaml with your values
+
+# 3. Build and deploy
+./scripts/deploy.sh
+
+# 4. Open http://localhost
+# Default login: admin / admin
+
+# 5. When done, graceful shutdown
+./scripts/stop.sh
+```
+
+### Daily Workflow
+
+```bash
+./scripts/start.sh    # Start (2-3 seconds if cluster exists)
+./scripts/deploy.sh   # Rebuild after code changes
+./scripts/stop.sh     # Stop (zero CPU/RAM when off)
+```
+
+## Cloud Deployment (GCP + K3s)
+
+For production: a GCE e2-small in europe-west8 (Milan) running K3s natively, exposed via Cloudflare Tunnel.
+
+### Prerequisites
+
+- Google Cloud account with project created
+- Cloudflare account with domain and API token
+- Terraform >= 1.5
+
+### Deploy
+
+```bash
+# 1. Provision infrastructure
+cd terraform
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your values
+terraform init && terraform apply
+
+# 2. SSH into the VM
+ssh -i ~/.ssh/md-vault mdvault@<GCE_PUBLIC_IP>
+
+# 3. Clone, configure secrets, deploy
+git clone https://github.com/MK023/md_vault.git && cd md_vault
+cp k8s/secrets.yaml.example k8s/secrets.yaml
+# Edit secrets with: JWT_SECRET, ADMIN_PASSWORD, CLOUDFLARE_TUNNEL_TOKEN
+./scripts/deploy.sh
+
+# 4. Access via https://mdvault.site
+```
+
+## Docker Compose (simple local dev)
+
+For quick backend testing without K8s:
+
+```bash
+docker-compose up --build
+# Backend: http://localhost:8000
+# Frontend: http://localhost:8080
 ```
 
 ## API Endpoints
 
-| Method   | Endpoint              | Description                          | Auth |
-|----------|-----------------------|--------------------------------------|------|
-| `POST`   | `/api/auth/login`     | Login, returns JWT token             | No   |
-| `PUT`    | `/api/auth/password`  | Change password                      | Yes  |
-| `GET`    | `/api/docs`           | List all documents                   | Yes  |
-| `POST`   | `/api/docs`           | Create a document (JSON)             | Yes  |
-| `POST`   | `/api/docs/upload`    | Upload a file (multipart)            | Yes  |
-| `GET`    | `/api/docs/{id}`      | Get document by ID                   | Yes  |
-| `GET`    | `/api/docs/{id}/file` | Download original file               | Yes  |
-| `PUT`    | `/api/docs/{id}`      | Update document                      | Yes  |
-| `DELETE` | `/api/docs/{id}`      | Delete document + file               | Yes  |
-| `GET`    | `/api/docs/meta/tags` | List all unique tags                 | Yes  |
-| `GET`    | `/api/search?q=`      | Full-text search (FTS5)              | Yes  |
-| `GET`    | `/api/healthz`        | Health check                         | No   |
+| Method   | Endpoint              | Description              | Auth |
+|----------|-----------------------|--------------------------|------|
+| `POST`   | `/api/auth/login`     | Login, returns JWT       | No   |
+| `PUT`    | `/api/auth/password`  | Change password          | Yes  |
+| `GET`    | `/api/docs`           | List documents           | Yes  |
+| `POST`   | `/api/docs`           | Create document          | Yes  |
+| `POST`   | `/api/docs/upload`    | Upload file              | Yes  |
+| `GET`    | `/api/docs/{id}`      | Get document             | Yes  |
+| `GET`    | `/api/docs/{id}/file` | Download file            | Yes  |
+| `PUT`    | `/api/docs/{id}`      | Update document          | Yes  |
+| `DELETE` | `/api/docs/{id}`      | Delete document + file   | Yes  |
+| `GET`    | `/api/docs/meta/tags` | List unique tags         | Yes  |
+| `GET`    | `/api/search?q=`      | Full-text search (FTS5)  | Yes  |
+| `GET`    | `/api/healthz`        | Health check             | No   |
 
-## Backup Strategy
+## Key Features
 
-Backups run automatically via Kubernetes CronJob at 03:00 UTC daily:
-
-- **Local backup** using the SQLite online backup API (consistent, no locking)
-- **Remote backup** uploaded to Cloudflare R2 (S3-compatible storage)
-- **Retention** keeps the latest 7 local backups
-
-Manual backup:
-```bash
-kubectl exec deployment/md-vault-api -n md-vault -- python /app/backup.py
-```
+- **Full-text search** via SQLite FTS5 with BM25 ranking and highlighted snippets
+- **File upload** supporting MD, PDF, DOCX, XLSX, images, draw.io (max 50MB)
+- **Integrated viewers** for PDF (PDF.js), DOCX (mammoth.js), spreadsheets (SheetJS), draw.io diagrams
+- **Tree explorer** with drag & drop between folders, context menu for rename/delete
+- **JWT auth** with bcrypt password hashing, 24h token expiry
+- **Automatic backups** via K8s CronJob to Cloudflare R2
+- **XSS prevention** with DOMPurify on all rendered HTML
+- **Path traversal protection** on file downloads
 
 ## License
 
-MIT License
-
-Copyright (c) 2026 Marco Bellingeri
+MIT License - Copyright (c) 2026 Marco Bellingeri

@@ -2,9 +2,9 @@
 
 from fastapi import APIRouter, Depends, Query
 
-from api.auth import get_current_user
-from api.database import get_connection
-from api.models import SearchResult
+from backend.auth import get_current_user
+from backend.database import get_connection
+from backend.models import SearchResult
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 

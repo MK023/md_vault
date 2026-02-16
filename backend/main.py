@@ -6,9 +6,9 @@ import sentry_sdk
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.config import SENTRY_DSN
-from api.database import get_connection, init_db
-from api.routers import auth, documents, search
+from backend.config import SENTRY_DSN
+from backend.database import get_connection, init_db
+from backend.routers import auth, documents, search
 
 if SENTRY_DSN:
     sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.3, send_default_pii=False)

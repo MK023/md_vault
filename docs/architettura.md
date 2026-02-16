@@ -171,7 +171,7 @@ Il risultato e un sistema production-ready che risolve un problema reale, con vi
 ### Struttura del codice
 
 ```
-api/
+backend/
   __init__.py
   main.py          # Entrypoint FastAPI, CORS, lifespan
   config.py        # Configurazione da env vars
@@ -414,7 +414,7 @@ RUN adduser --disabled-password --gecos "" appuser
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . ./api/
+COPY . ./backend/
 
 RUN mkdir -p /data && chown appuser:appuser /data
 
@@ -422,7 +422,7 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
 Punti chiave:
@@ -1537,7 +1537,7 @@ build-api:
   steps:
     - uses: actions/checkout@v4
     - name: Build API image
-      run: docker build -t md-vault-api:latest ./api
+      run: docker build -t md-vault-api:latest ./backend
 ```
 
 #### 3. Build Frontend (`build-frontend`)
@@ -1848,7 +1848,7 @@ echo "=== MD Vault Deploy ==="
 
 # Step 1: Build immagine Docker API
 echo "[1/5] Building API image..."
-docker build -t md-vault-api:latest ./api
+docker build -t md-vault-api:latest ./backend
 
 # Step 2: Build immagine Docker Frontend
 echo "[2/5] Building Frontend image..."
@@ -1964,28 +1964,25 @@ kubectl top pods -n md-vault
 
 ```
 md_vault/
-  api/
-    __init__.py
+  backend/                    # FastAPI backend
     main.py
     config.py
     database.py
     auth.py
     models.py
     routers/
-      __init__.py
       auth.py
       documents.py
       search.py
     Dockerfile
     requirements.txt
-  frontend/
+  frontend/                   # Win95 UI (vanilla JS)
     index.html
     style.css
     app.js
     nginx.conf
-    nginx.dev.conf
     Dockerfile
-  k8s/
+  k8s/                        # Kubernetes manifests
     namespace.yaml
     secrets.yaml.example
     configmap.yaml
@@ -1997,7 +1994,7 @@ md_vault/
     cloudflared-deployment.yaml
     ingress.yaml
     backup-cronjob.yaml
-  terraform/
+  terraform/                  # IaC (Google Cloud)
     providers.tf
     variables.tf
     vpc.tf
@@ -2008,7 +2005,9 @@ md_vault/
     outputs.tf
     scripts/
       startup.sh
-  scripts/
+  scripts/                    # Lifecycle & deploy
+    start.sh
+    stop.sh
     deploy.sh
     backup.py
   docs/
@@ -2017,7 +2016,8 @@ md_vault/
   .github/
     workflows/
       ci.yml
-  .gitignore
   docker-compose.yml
+  pyproject.toml
+  .gitignore
   README.md
 ```

@@ -22,7 +22,7 @@ fi
 
 # Build Docker images
 echo "[1/5] Building API image..."
-docker build -t md-vault-api:latest "$ROOT_DIR/api"
+docker build -t md-vault-api:latest "$ROOT_DIR/backend"
 
 echo "[2/5] Building Frontend image..."
 docker build -t md-vault-frontend:latest "$ROOT_DIR/frontend"

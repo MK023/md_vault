@@ -5,7 +5,7 @@ import sqlite3
 
 import bcrypt
 
-from api.config import ADMIN_PASSWORD, DB_PATH
+from backend.config import ADMIN_PASSWORD, DB_PATH
 
 
 def get_connection() -> sqlite3.Connection:

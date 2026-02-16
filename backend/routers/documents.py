@@ -6,10 +6,10 @@ import os
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 
-from api.auth import get_current_user
-from api.config import UPLOAD_DIR
-from api.database import get_connection
-from api.models import DocumentCreate, DocumentListItem, DocumentResponse, DocumentUpdate
+from backend.auth import get_current_user
+from backend.config import UPLOAD_DIR
+from backend.database import get_connection
+from backend.models import DocumentCreate, DocumentListItem, DocumentResponse, DocumentUpdate
 
 router = APIRouter(prefix="/api/docs", tags=["documents"])
 

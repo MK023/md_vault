@@ -2,9 +2,9 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from api.auth import create_token, get_current_user, hash_password, verify_password
-from api.database import get_connection
-from api.models import LoginRequest, TokenResponse
+from backend.auth import create_token, get_current_user, hash_password, verify_password
+from backend.database import get_connection
+from backend.models import LoginRequest, TokenResponse
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
