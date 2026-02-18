@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Backup vault.db to Cloudflare R2 (S3-compatible)."""
+
 import os
 import shutil
 import sqlite3
@@ -37,6 +38,7 @@ def upload_to_r2(file_path):
 
     try:
         import boto3
+
         s3 = boto3.client(
             "s3",
             endpoint_url=R2_ENDPOINT,

@@ -90,7 +90,9 @@ def init_db():
             cur.execute("ALTER TABLE documents ADD COLUMN file_name TEXT")
             cur.execute("ALTER TABLE documents ADD COLUMN file_type TEXT")
 
-        existing = cur.execute("SELECT id, password_hash FROM users WHERE username = ?", ("admin",)).fetchone()
+        existing = cur.execute(
+            "SELECT id, password_hash FROM users WHERE username = ?", ("admin",)
+        ).fetchone()
         if not existing:
             hashed = bcrypt.hashpw(ADMIN_PASSWORD.encode(), bcrypt.gensalt())
             cur.execute(

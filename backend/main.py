@@ -1,5 +1,6 @@
 """MD Vault — API FastAPI per gestione documentazione personale."""
 
+import logging
 import os
 import platform
 import sqlite3
@@ -15,6 +16,8 @@ from backend.auth import get_current_user
 from backend.config import DB_PATH, SENTRY_DSN
 from backend.database import get_db, init_db
 from backend.routers import auth, documents, search
+
+logger = logging.getLogger(__name__)
 
 if SENTRY_DSN:
     sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.3, send_default_pii=False)
@@ -72,7 +75,7 @@ def system_info(_user: str = Depends(get_current_user)):
     try:
         db_size = os.path.getsize(DB_PATH)
     except OSError:
-        pass
+        logger.warning("Unable to read database file size at %s", DB_PATH)
 
     # Doc count
     doc_count = 0
@@ -80,8 +83,8 @@ def system_info(_user: str = Depends(get_current_user)):
         with get_db() as conn:
             row = conn.execute("SELECT COUNT(*) AS c FROM documents").fetchone()
             doc_count = row["c"]
-    except Exception:
-        pass
+    except (sqlite3.OperationalError, sqlite3.DatabaseError):
+        logger.warning("Unable to query document count")
 
     return {
         "hostname": uname.node,

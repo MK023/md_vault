@@ -67,7 +67,8 @@ def list_documents(_user: str = Depends(get_current_user)):
 def create_document(doc: DocumentCreate, _user: str = Depends(get_current_user)):
     with get_db() as conn:
         row = conn.execute(
-            "INSERT INTO documents (title, content, project, tags) VALUES (?, ?, ?, ?) RETURNING *",
+            "INSERT INTO documents (title, content, project, tags)"
+            " VALUES (?, ?, ?, ?) RETURNING *",
             (doc.title, doc.content, doc.project, doc.tags),
         ).fetchone()
         conn.commit()
@@ -195,7 +196,9 @@ def update_document(
 @router.delete("/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_document(doc_id: int, _user: str = Depends(get_current_user)):
     with get_db() as conn:
-        existing = conn.execute("SELECT file_name FROM documents WHERE id = ?", (doc_id,)).fetchone()
+        existing = conn.execute(
+            "SELECT file_name FROM documents WHERE id = ?", (doc_id,)
+        ).fetchone()
         if not existing:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 

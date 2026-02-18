@@ -32,7 +32,9 @@ def _check_rate_limit(ip: str):
 
 @router.post("/login", response_model=TokenResponse)
 def login(body: LoginRequest, request: Request):
-    client_ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
+    client_ip = request.headers.get("X-Real-IP") or (
+        request.client.host if request.client else "unknown"
+    )
     _check_rate_limit(client_ip)
 
     with get_db() as conn:
