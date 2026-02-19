@@ -1,6 +1,6 @@
-fastapi==0.115.6
-uvicorn==0.34.0
-pyjwt==2.10.1
+fastapi==0.129.0
+uvicorn==0.41.0
+pyjwt==2.11.0
 bcrypt==4.2.1
 python-multipart==0.0.22
-sentry-sdk[fastapi]==2.19.2
+sentry-sdk[fastapi]==2.53.0
