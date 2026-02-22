@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: md-vault-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "md-vault.labels" . | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: md-vault-api
+                port:
+                  number: {{ .Values.api.port }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: md-vault-frontend
+                port:
+                  number: {{ .Values.frontend.port }}

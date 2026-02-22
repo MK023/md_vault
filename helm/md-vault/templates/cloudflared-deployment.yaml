@@ -1,0 +1,52 @@
+{{- if .Values.tunnel.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: cloudflared
+    {{- include "md-vault.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+      containers:
+        - name: cloudflared
+          image: {{ .Values.tunnel.image }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - tunnel
+            - --metrics
+            - "0.0.0.0:2000"
+            - run
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: md-vault-secrets
+                  key: CLOUDFLARE_TUNNEL_TOKEN
+          resources:
+            {{- toYaml .Values.tunnel.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+{{- end }}

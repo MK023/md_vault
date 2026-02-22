@@ -50,26 +50,16 @@ if [ ! -f "$ROOT_DIR/k8s/secrets.yaml" ]; then
   fi
 fi
 
-# Apply K8s manifests
-echo "[4/5] Applying Kubernetes manifests..."
-kubectl apply -f "$ROOT_DIR/k8s/namespace.yaml"
-[ -f "$ROOT_DIR/k8s/secrets.yaml" ] && kubectl apply -f "$ROOT_DIR/k8s/secrets.yaml"
-kubectl apply -f "$ROOT_DIR/k8s/configmap.yaml"
-kubectl apply -f "$ROOT_DIR/k8s/pv-pvc.yaml"
-kubectl apply -f "$ROOT_DIR/k8s/api-deployment.yaml"
-kubectl apply -f "$ROOT_DIR/k8s/api-service.yaml"
-kubectl apply -f "$ROOT_DIR/k8s/frontend-deployment.yaml"
-kubectl apply -f "$ROOT_DIR/k8s/frontend-service.yaml"
-kubectl apply -f "$ROOT_DIR/k8s/ingress.yaml"
-
-# Cloudflared only if tunnel token is configured
-if kubectl get secret md-vault-secrets -n md-vault -o jsonpath='{.data.CLOUDFLARE_TUNNEL_TOKEN}' 2>/dev/null | grep -q .; then
-  kubectl apply -f "$ROOT_DIR/k8s/cloudflared-deployment.yaml"
+# Deploy with Helm
+echo "[4/5] Deploying with Helm..."
+if [ "$ENV" = "k3d" ]; then
+  helm upgrade --install md-vault "$ROOT_DIR/helm/md-vault" \
+    -f "$ROOT_DIR/helm/md-vault/values-local.yaml" \
+    --namespace md-vault --create-namespace
 else
-  echo "SKIP: cloudflared (no CLOUDFLARE_TUNNEL_TOKEN in secrets)"
+  helm upgrade --install md-vault "$ROOT_DIR/helm/md-vault" \
+    --namespace md-vault --create-namespace
 fi
-
-kubectl apply -f "$ROOT_DIR/k8s/backup-cronjob.yaml"
 
 # Restart deployments to pick up new images
 echo "[5/5] Restarting deployments..."

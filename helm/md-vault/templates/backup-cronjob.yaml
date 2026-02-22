@@ -1,0 +1,48 @@
+{{- if .Values.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: md-vault-backup
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "md-vault.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          containers:
+            - name: backup
+              image: {{ .Values.backup.image }}
+              command:
+                - python
+                - /app/backup.py
+              env:
+                - name: DB_PATH
+                  value: "/data/vault.db"
+                - name: R2_ENDPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: md-vault-secrets
+                      key: R2_ENDPOINT
+                      optional: true
+              resources:
+                {{- toYaml .Values.backup.resources | nindent 16 }}
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+          restartPolicy: OnFailure
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: md-vault-data
+{{- end }}

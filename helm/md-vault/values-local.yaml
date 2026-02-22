@@ -1,0 +1,5 @@
+config:
+  corsOrigins: "*"
+
+storage:
+  hostPath: /tmp/md-vault/data

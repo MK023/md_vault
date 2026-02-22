@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: md-vault-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "md-vault.labels" . | nindent 4 }}
+data:
+  DB_PATH: {{ .Values.config.dbPath | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  JWT_EXPIRY_HOURS: {{ .Values.config.jwtExpiryHours | quote }}
+  DOCS_ENABLED: {{ .Values.config.docsEnabled | quote }}
+  CORS_ORIGINS: {{ .Values.config.corsOrigins | quote }}

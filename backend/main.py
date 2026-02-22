@@ -29,10 +29,12 @@ async def lifespan(app: FastAPI):
     yield
 
 
-_docs_enabled = os.environ.get("DOCS_ENABLED", "").lower() in ("1", "true")
+_docs_enabled = os.environ.get("DOCS_ENABLED", "true").lower() in ("1", "true")
 app = FastAPI(
     title="MD Vault",
     version="1.0.0",
+    description="Personal knowledge base API with full-text search, "
+    "file management, and JWT authentication.",
     lifespan=lifespan,
     docs_url="/api/docs" if _docs_enabled else None,
     redoc_url=None,

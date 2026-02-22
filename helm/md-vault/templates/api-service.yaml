@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: md-vault-api
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "md-vault.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: md-vault-api
+  ports:
+    - port: {{ .Values.api.port }}
+      targetPort: {{ .Values.api.port }}
+  type: ClusterIP

@@ -1,0 +1,72 @@
+namespace: md-vault
+
+api:
+  image: md-vault-api:latest
+  pullPolicy: Never
+  port: 8000
+  replicas: 1
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "500m"
+
+frontend:
+  image: md-vault-frontend:latest
+  pullPolicy: Never
+  port: 80
+  replicas: 1
+  resources:
+    requests:
+      memory: "32Mi"
+      cpu: "50m"
+    limits:
+      memory: "64Mi"
+      cpu: "200m"
+
+config:
+  dbPath: "/data/vault.db"
+  logLevel: "info"
+  jwtExpiryHours: "24"
+  docsEnabled: "true"
+  corsOrigins: "https://mdvault.site"
+
+secrets:
+  jwtSecret: "change-me-to-a-random-string"
+  adminPassword: "change-me-to-a-strong-password"
+  sentryDsn: ""
+
+storage:
+  size: 5Gi
+  hostPath: /opt/md-vault/data
+  storageClass: manual
+
+ingress:
+  className: nginx
+
+tunnel:
+  enabled: false
+  token: ""
+  image: cloudflare/cloudflared:2024.6.1
+  resources:
+    requests:
+      memory: "32Mi"
+      cpu: "50m"
+    limits:
+      memory: "64Mi"
+      cpu: "200m"
+
+backup:
+  enabled: true
+  schedule: "0 3 * * *"
+  image: md-vault-backup:latest
+  r2Endpoint: ""
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "200m"

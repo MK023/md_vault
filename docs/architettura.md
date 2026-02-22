@@ -60,7 +60,7 @@ Il risultato e un sistema production-ready che risolve un problema reale, con vi
 | UI | Tema Windows 95 retro, zero build step |
 | Backup | CronJob K8s notturno su Cloudflare R2 |
 | Infrastruttura | Terraform IaC completo |
-| Deploy | Script one-shot con import immagini in K3s |
+| Deploy | Helm chart + script one-shot con import immagini in K3s |
 
 ---
 
@@ -153,7 +153,7 @@ Il risultato e un sistema production-ready che risolve un problema reale, con vi
 | `md-vault-frontend` | `md-vault-frontend:latest` | Serve UI statica | 32-64Mi RAM |
 | `md-vault-api` | `md-vault-api:latest` | Backend REST API | 128-256Mi RAM |
 | `cloudflared` | `cloudflare/cloudflared:2024.6.1` | Tunnel verso Cloudflare | 32-64Mi RAM |
-| `md-vault-backup` (CronJob) | `python:3.11-slim` | Backup notturno DB | 64-128Mi RAM |
+| `md-vault-backup` (CronJob) | `md-vault-backup:latest` | Backup notturno DB | 64-128Mi RAM |
 | Nginx Ingress Controller | `ingress-nginx` | Routing HTTP | ~120Mi RAM |
 
 ---
@@ -162,10 +162,12 @@ Il risultato e un sistema production-ready che risolve un problema reale, con vi
 
 ### Stack tecnologico
 
-- **Framework**: FastAPI 0.115.6 con uvicorn 0.34.0 come ASGI server
+- **Framework**: FastAPI 0.129.0 con uvicorn 0.41.0 come ASGI server
 - **Python**: 3.11-slim (immagine Docker leggera)
-- **Autenticazione**: JWT (PyJWT 2.10.1) con bcrypt 4.2.1
-- **Upload**: python-multipart 0.0.20
+- **Autenticazione**: JWT (PyJWT 2.11.0) con bcrypt 5.0.0
+- **Upload**: python-multipart 0.0.22
+- **Monitoring**: Sentry SDK 2.53.0
+- **Testing**: pytest 8.3.4 + httpx 0.28.1
 - **Database**: sqlite3 (libreria standard Python)
 
 ### Struttura del codice
@@ -183,6 +185,12 @@ backend/
     auth.py        # Login, cambio password
     documents.py   # CRUD documenti, upload file
     search.py      # Ricerca full-text FTS5
+  tests/
+    __init__.py
+    conftest.py    # Fixtures: test DB, test client, auth token
+    test_auth.py   # JWT, bcrypt, login, rate limiting
+    test_documents.py  # CRUD, file upload/download, tags
+    test_search.py     # FTS5 search, edge cases, healthz
   Dockerfile       # Build image Python
   requirements.txt # Dipendenze pip
 ```
@@ -197,9 +205,11 @@ async def lifespan(app: FastAPI):
     init_db()
     yield
 
-_docs_enabled = os.environ.get("DOCS_ENABLED", "").lower() in ("1", "true")
+_docs_enabled = os.environ.get("DOCS_ENABLED", "true").lower() in ("1", "true")
 app = FastAPI(
-    title="MD Vault", version="1.0.0", lifespan=lifespan,
+    title="MD Vault", version="1.0.0",
+    description="Personal knowledge base API with full-text search, file management, and JWT authentication.",
+    lifespan=lifespan,
     docs_url="/api/docs" if _docs_enabled else None,
     redoc_url=None,
     openapi_url="/api/openapi.json" if _docs_enabled else None,
@@ -219,7 +229,7 @@ app.include_router(documents.router)
 app.include_router(search.router)
 ```
 
-La documentazione Swagger e disabilitata per default in produzione (attivabile con `DOCS_ENABLED=true`). Le origini CORS sono ristrette al dominio di produzione.
+La documentazione Swagger/OpenAPI e abilitata per default (`DOCS_ENABLED=true`), accessibile su `/api/docs`. Puo essere disabilitata in produzione con `DOCS_ENABLED=false`. Le origini CORS sono ristrette al dominio di produzione.
 
 ### Configurazione
 
@@ -416,6 +426,45 @@ if not real_path.startswith(os.path.realpath(UPLOAD_DIR)):
 
 Questo impedisce a un file con nome malevolo (es. `../../etc/passwd`) di uscire dalla directory di upload.
 
+### Test Suite
+
+Il backend include una suite di test completa con pytest e httpx, che copre tutti gli endpoint API:
+
+| File | Test | Copertura |
+|---|---|---|
+| `test_auth.py` | 12 | Login success/failure, rate limiting, cambio password, validazione token |
+| `test_documents.py` | 16 | CRUD, upload/download file, tags, protezione path traversal |
+| `test_search.py` | 10 | Ricerca FTS5, edge cases, healthz, system-info |
+| **Totale** | **38** | Tutti gli endpoint API |
+
+I test usano un database SQLite in-memory con fixture isolate. Il pattern `importlib.reload` garantisce che ogni test ottenga un'istanza pulita di config, database e app FastAPI:
+
+```python
+@pytest.fixture()
+def client(tmp_path):
+    os.environ["DB_PATH"] = str(tmp_path / "test.db")
+    os.environ["UPLOAD_DIR"] = str(tmp_path / "uploads")
+
+    import importlib
+    import backend.config; importlib.reload(backend.config)
+    import backend.database; importlib.reload(backend.database)
+    import backend.main; importlib.reload(backend.main)
+
+    from backend.main import app
+    with TestClient(app) as c:
+        yield c
+```
+
+Esecuzione:
+
+```bash
+# Tutti i test
+python -m pytest backend/tests/ -v
+
+# File specifico
+python -m pytest backend/tests/test_auth.py -v
+```
+
 ### Dockerfile API
 
 ```dockerfile
@@ -451,7 +500,44 @@ Punti chiave:
 
 ### Design Win95 Retro
 
-Il frontend adotta un'interfaccia utente ispirata a Windows 95, implementata interamente con HTML, CSS e JavaScript vanilla -- senza framework, senza build step, senza node_modules.
+Il frontend adotta un'interfaccia utente ispirata a Windows 95, implementata interamente con HTML, CSS e JavaScript vanilla (ES6 modules) -- senza framework, senza build step, senza node_modules.
+
+### Architettura modulare ES6
+
+Il codice JavaScript e organizzato in moduli ES6 nativi, serviti direttamente da Nginx senza bundler:
+
+```
+frontend/js/
+  app.js           # Init, event listeners, orchestrazione
+  api.js           # apiFetch(), tutte le chiamate HTTP
+  auth.js          # Login flow, gestione token, cambio password
+  documents.js     # CRUD documenti, rendering markdown/file, viewer
+  tree.js          # Tree navigation, drag-drop, context menu
+  windows.js       # Window management, minimize/maximize, resize, desktop icons
+  state.js         # Stato applicativo condiviso
+```
+
+Ogni modulo esporta solo cio che serve agli altri. L'entry point `app.js` importa e inizializza tutti i moduli:
+
+```javascript
+import { state } from "./state.js";
+import { initAuth, showLogin, showMain } from "./auth.js";
+import { initDocuments, loadDocuments } from "./documents.js";
+import { initTree, renderTree } from "./tree.js";
+import { initWindows } from "./windows.js";
+```
+
+L'`index.html` carica l'entry point come modulo:
+
+```html
+<script type="module" src="js/app.js"></script>
+```
+
+Vantaggi di questa architettura:
+- **Zero build step**: i moduli ES6 sono supportati nativamente da tutti i browser moderni
+- **Separazione responsabilita**: ogni modulo gestisce un aspetto specifico dell'applicazione
+- **Manutenibilita**: modifiche isolate senza rischio di side-effect su altre aree
+- **Callback pattern**: dipendenze cross-modulo gestite con registrazione callback (`onLoginSuccess`, `onDocumentsLoaded`) per evitare import circolari
 
 L'interfaccia replica fedelmente gli elementi UI di Windows 95:
 - **Finestre** con barra del titolo blu gradiente e pulsanti di controllo funzionanti (riduci ad icona, ingrandisci, chiudi)
@@ -665,12 +751,12 @@ FROM nginx:alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY index.html /usr/share/nginx/html/
 COPY style.css /usr/share/nginx/html/
-COPY app.js /usr/share/nginx/html/
+COPY js/ /usr/share/nginx/html/js/
 
 EXPOSE 80
 ```
 
-L'immagine risultante e estremamente leggera: nginx:alpine piu 3 file statici.
+L'immagine risultante e estremamente leggera: nginx:alpine piu i file statici (HTML, CSS e moduli JS).
 
 ---
 
@@ -1157,9 +1243,52 @@ gcloud storage buckets create gs://md-vault-terraform-state \
 
 ## 7. Kubernetes
 
-### Organizzazione dei manifest
+### Helm Chart
 
-Tutti i manifest Kubernetes risiedono nella directory `k8s/`:
+Il deploy Kubernetes e gestito tramite un Helm 3 chart che parametrizza tutti i manifest:
+
+```
+helm/md-vault/
+  Chart.yaml              # Metadata del chart (name, version)
+  values.yaml             # Valori di default per produzione
+  values-local.yaml       # Override per k3d locale
+  templates/
+    _helpers.tpl          # Helper per label comuni
+    namespace.yaml
+    secrets.yaml
+    configmap.yaml
+    pv-pvc.yaml
+    api-deployment.yaml
+    api-service.yaml
+    frontend-deployment.yaml
+    frontend-service.yaml
+    ingress.yaml
+    cloudflared.yaml      # Condizionale: .Values.tunnel.enabled
+    backup-cronjob.yaml
+```
+
+Il chart supporta configurazione flessibile tramite `values.yaml`:
+
+```bash
+# Deploy con valori di produzione
+helm upgrade --install md-vault helm/md-vault
+
+# Deploy locale con override k3d
+helm upgrade --install md-vault helm/md-vault -f helm/md-vault/values-local.yaml
+
+# Dry-run per ispezionare i template renderizzati
+helm template md-vault helm/md-vault
+```
+
+Componenti condizionali:
+- **Cloudflare Tunnel**: abilitato/disabilitato con `.Values.tunnel.enabled`
+- **Backup CronJob**: abilitato/disabilitato con `.Values.backup.enabled`
+
+Lo script `deploy.sh` usa `helm upgrade --install` per deploy idempotenti.
+
+### Organizzazione dei manifest (legacy)
+
+I manifest raw Kubernetes sono mantenuti in `k8s/` come riferimento:
 
 ```
 k8s/
@@ -1464,6 +1593,20 @@ Non c'e `rewrite-target` perche l'API si aspetta di ricevere le richieste con il
 
 ### CronJob Backup
 
+Il backup notturno usa un'immagine Docker dedicata (`md-vault-backup`) con boto3 pre-installato, eliminando la necessita di `pip install` a runtime:
+
+```dockerfile
+# backup/Dockerfile
+FROM python:3.11-slim
+RUN pip install --no-cache-dir boto3 && \
+    adduser --disabled-password --gecos "" backupuser
+COPY backup.py /app/backup.py
+USER backupuser
+ENTRYPOINT ["python", "/app/backup.py"]
+```
+
+Il CronJob Kubernetes:
+
 ```yaml
 apiVersion: batch/v1
 kind: CronJob
@@ -1482,13 +1625,8 @@ spec:
             fsGroup: 1000
           containers:
             - name: backup
-              image: python:3.11-slim
-              command:
-                - /bin/sh
-                - -c
-                - |
-                  pip install -q boto3 &&
-                  python /scripts/backup.py
+              image: md-vault-backup:latest
+              imagePullPolicy: Never
               resources:
                 requests:
                   memory: "64Mi"
@@ -1505,7 +1643,7 @@ spec:
                 claimName: md-vault-data
 ```
 
-Il CronJob esegue ogni notte alle 03:00 UTC. Monta il volume dati in sola lettura (`readOnly: true`) per sicurezza.
+Il CronJob esegue ogni notte alle 03:00 UTC. Monta il volume dati in sola lettura (`readOnly: true`) per sicurezza. L'immagine dedicata garantisce startup rapido e riproducibilita (nessun download a runtime).
 
 ### Budget risorse per 2GB RAM
 
@@ -1543,11 +1681,13 @@ on:
 
 ### Job della pipeline
 
-La pipeline e composta da 5 job, alcuni indipendenti e paralleli:
+La pipeline e composta da 8 job, alcuni indipendenti e paralleli:
 
 ```
-lint ──> build-api
+lint ──> test ──> build-api
 build-frontend (parallelo)
+build-backup (parallelo)
+validate-helm (parallelo)
 validate-k8s (parallelo)
 validate-terraform (parallelo)
 ```
@@ -1581,21 +1721,42 @@ Esegue analisi statica del codice Python con 5 strumenti:
 | **Bandit** | Analisi sicurezza (esclude B608: SQL injection, gestita manualmente) |
 | **Mypy** | Type checking statico |
 
-#### 2. Build API (`build-api`)
+#### 2. Test (`test`)
 
-Dipende dal job `lint` (si esegue solo se il lint passa):
+Esegue la suite di test pytest dopo il lint:
+
+```yaml
+test:
+  runs-on: ubuntu-latest
+  needs: lint
+  steps:
+    - uses: actions/checkout@v6
+    - uses: actions/setup-python@v6
+      with:
+        python-version: "3.11"
+    - name: Install dependencies
+      run: pip install -r backend/requirements.txt
+    - name: Run tests
+      run: python -m pytest backend/tests/ -v
+```
+
+I 38 test coprono tutti gli endpoint API con database SQLite in-memory.
+
+#### 3. Build API (`build-api`)
+
+Dipende dal job `test` (si esegue solo se i test passano):
 
 ```yaml
 build-api:
   runs-on: ubuntu-latest
-  needs: lint
+  needs: test
   steps:
     - uses: actions/checkout@v4
     - name: Build API image
       run: docker build -t md-vault-api:latest ./backend
 ```
 
-#### 3. Build Frontend (`build-frontend`)
+#### 4. Build Frontend (`build-frontend`)
 
 Eseguito in parallelo (non dipende dal lint):
 
@@ -1608,7 +1769,37 @@ build-frontend:
       run: docker build -t md-vault-frontend:latest ./frontend
 ```
 
-#### 4. Validazione YAML Kubernetes (`validate-k8s`)
+#### 5. Build Backup (`build-backup`)
+
+Builda l'immagine Docker dedicata per il backup:
+
+```yaml
+build-backup:
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v6
+    - name: Build Backup image
+      run: docker build -t md-vault-backup:latest ./backup
+```
+
+#### 6. Validazione Helm (`validate-helm`)
+
+Verifica la sintassi e la correttezza del chart Helm:
+
+```yaml
+validate-helm:
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v6
+    - name: Install Helm
+      uses: azure/setup-helm@v4
+      with:
+        version: "v3.14.0"
+    - name: Helm lint
+      run: helm lint helm/md-vault
+```
+
+#### 7. Validazione YAML Kubernetes (`validate-k8s`)
 
 Verifica che tutti i file YAML nella directory `k8s/` siano sintatticamente validi:
 
@@ -1629,7 +1820,7 @@ validate-k8s:
         done
 ```
 
-#### 5. Validazione Terraform (`validate-terraform`)
+#### 8. Validazione Terraform (`validate-terraform`)
 
 Verifica formattazione e validita della configurazione Terraform:
 
@@ -1686,7 +1877,7 @@ L'IP viene letto dall'header `X-Real-IP` settato da nginx (non `X-Forwarded-For`
 ### CORS e API docs
 
 - **CORS ristretto**: le origini consentite sono configurate tramite env var `CORS_ORIGINS` (default: `https://mdvault.site`). In sviluppo locale si puo impostare `CORS_ORIGINS=http://localhost`.
-- **API docs disabilitati**: Swagger UI e OpenAPI schema sono disabilitati per default in produzione. Attivabili con `DOCS_ENABLED=true` per debug.
+- **Swagger/OpenAPI abilitati**: la documentazione interattiva e disponibile su `/api/docs` per default. Disattivabile con `DOCS_ENABLED=false` in produzione se necessario.
 
 ### Protezione da path traversal
 
@@ -1840,8 +2031,8 @@ FTS5 offre:
 | Motivazione | Dettaglio |
 |---|---|
 | **Originalita** | In un mare di Material Design e Tailwind, un'interfaccia Win95 si distingue immediatamente |
-| **Zero build step** | HTML + CSS + JS vanilla. Nessun npm, webpack, vite. L'immagine Docker copia 3 file |
-| **Leggerezza** | ~1100 righe di JS, ~640 righe di CSS. Nessuna dipendenza locale |
+| **Zero build step** | HTML + CSS + JS vanilla con ES6 modules. Nessun npm, webpack, vite |
+| **Leggerezza** | JS organizzato in 7 moduli ES6, ~640 righe di CSS. Nessuna dipendenza locale |
 | **Nostalgia funzionale** | L'interfaccia Win95 e immediatamente riconoscibile e intuitiva |
 | **Portfolio impact** | Dimostra che si puo creare un'UI completa e funzionale senza framework |
 
@@ -2053,15 +2244,45 @@ md_vault/
       auth.py
       documents.py
       search.py
+    tests/                    # pytest test suite (38 test)
+      conftest.py
+      test_auth.py
+      test_documents.py
+      test_search.py
     Dockerfile
     requirements.txt
-  frontend/                   # Win95 UI (vanilla JS)
+  frontend/                   # Win95 UI (ES6 modules, vanilla JS)
     index.html
     style.css
-    app.js
+    js/                       # Moduli ES6 nativi
+      app.js                  # Entry point, orchestrazione
+      api.js                  # apiFetch(), chiamate HTTP
+      auth.js                 # Login, token, cambio password
+      documents.js            # CRUD, viewer, rendering
+      tree.js                 # Tree, drag-drop, context menu
+      windows.js              # Finestre, taskbar, desktop icons
+      state.js                # Stato condiviso
     nginx.conf
     Dockerfile
-  k8s/                        # Kubernetes manifests
+  helm/                       # Helm 3 chart
+    md-vault/
+      Chart.yaml
+      values.yaml
+      values-local.yaml
+      templates/
+        _helpers.tpl
+        namespace.yaml
+        secrets.yaml
+        configmap.yaml
+        pv-pvc.yaml
+        api-deployment.yaml
+        api-service.yaml
+        frontend-deployment.yaml
+        frontend-service.yaml
+        ingress.yaml
+        cloudflared.yaml
+        backup-cronjob.yaml
+  k8s/                        # Kubernetes manifests (legacy)
     namespace.yaml
     secrets.yaml.example
     configmap.yaml
@@ -2073,6 +2294,9 @@ md_vault/
     cloudflared-deployment.yaml
     ingress.yaml
     backup-cronjob.yaml
+  backup/                     # Immagine Docker backup dedicata
+    Dockerfile                # python:3.11-slim + boto3
+    backup.py                 # Backup SQLite su R2
   terraform/                  # IaC (Google Cloud)
     providers.tf
     variables.tf
@@ -2087,14 +2311,14 @@ md_vault/
   scripts/                    # Lifecycle & deploy
     start.sh
     stop.sh
-    deploy.sh
+    deploy.sh                 # Build + Helm deploy
     backup.py
   docs/
     architettura.md
     architettura.drawio
   .github/
     workflows/
-      ci.yml
+      ci.yml                  # lint -> test -> build + validate
   docker-compose.yml
   pyproject.toml
   .gitignore

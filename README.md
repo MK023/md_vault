@@ -28,13 +28,16 @@ A self-hosted personal knowledge base with full-text search, file management, an
 | Layer            | Technology                         |
 |------------------|------------------------------------|
 | Backend          | FastAPI, SQLite FTS5, JWT + bcrypt  |
-| Frontend         | Vanilla JS/CSS (Win95 theme)       |
+| Frontend         | Vanilla JS/CSS (Win95 theme), ES6 modules |
+| Testing          | pytest + httpx (38 tests)          |
 | Orchestration    | K3s via k3d (local) or native      |
+| Packaging        | Helm 3 chart                       |
 | Infrastructure   | Terraform (Google Cloud)           |
 | Networking       | Cloudflare Tunnel (Zero Trust)     |
 | CI/CD            | GitHub Actions                     |
 | Monitoring       | Sentry                             |
 | Backups          | CronJob + Cloudflare R2            |
+| API Docs         | Swagger/OpenAPI (FastAPI auto-generated) |
 
 ## Project Structure
 
@@ -50,15 +53,33 @@ md_vault/
       auth.py               # Login + password change
       documents.py          # CRUD + file upload/download
       search.py             # Full-text search
+    tests/                  # pytest test suite
+      conftest.py           # Fixtures: test DB, test client, auth token
+      test_auth.py          # JWT, bcrypt, login, rate limiting
+      test_documents.py     # CRUD, file upload/download, tags
+      test_search.py        # FTS5 search, edge cases, healthz
     Dockerfile
     requirements.txt
   frontend/                 # Win95 UI (zero build step)
     index.html
     style.css
-    app.js
+    js/                     # ES6 modules (native, no bundler)
+      app.js                # Init, event listeners, orchestration
+      api.js                # apiFetch(), all HTTP calls
+      auth.js               # Login flow, token management
+      documents.js          # Document CRUD, viewers, rendering
+      tree.js               # Tree navigation, drag-drop, context menu
+      windows.js            # Window management, minimize/maximize, resize
+      state.js              # Shared application state
     nginx.conf
     Dockerfile
-  k8s/                      # Kubernetes manifests
+  helm/                     # Helm 3 chart
+    md-vault/
+      Chart.yaml
+      values.yaml           # Production defaults
+      values-local.yaml     # k3d overrides
+      templates/            # All K8s resources as templates
+  k8s/                      # Raw Kubernetes manifests (legacy)
     namespace.yaml
     secrets.yaml.example
     configmap.yaml
@@ -70,6 +91,9 @@ md_vault/
     cloudflared-deployment.yaml
     ingress.yaml
     backup-cronjob.yaml
+  backup/                   # Dedicated backup Docker image
+    Dockerfile              # python:3.11-slim + boto3
+    backup.py               # SQLite backup to R2
   terraform/                # IaC (Google Cloud)
     providers.tf
     variables.tf
@@ -83,22 +107,48 @@ md_vault/
   scripts/
     start.sh                # Start k3d cluster
     stop.sh                 # Graceful shutdown
-    deploy.sh               # Build + deploy (auto-detects k3d/k3s)
+    deploy.sh               # Build + Helm deploy (auto-detects k3d/k3s)
     backup.py               # SQLite backup to R2
   docs/
     architettura.md         # Technical documentation (Italian)
     architettura.drawio     # Architecture diagram
 ```
 
-## Local Development (k3d)
+## Testing
 
-Run the full stack locally with k3d (K3s in Docker). Zero cloud costs, same K8s manifests as production.
+The backend has a comprehensive pytest test suite with 38 tests covering all API endpoints.
+
+```bash
+# Run all tests
+python -m pytest backend/tests/ -v
+
+# Run specific test file
+python -m pytest backend/tests/test_auth.py -v
+
+# Run with coverage
+python -m pytest backend/tests/ -v --tb=short
+```
+
+**Test coverage:**
+
+| Module          | Tests | Coverage                                         |
+|-----------------|-------|--------------------------------------------------|
+| `test_auth.py`      | 12 | Login success/failure, rate limiting, password change, token validation |
+| `test_documents.py` | 16 | CRUD operations, file upload/download, tags, path traversal protection |
+| `test_search.py`    | 10 | FTS5 search, edge cases, healthz, system-info    |
+
+Tests use an in-memory SQLite database with isolated fixtures (`importlib.reload` pattern) for full test isolation.
+
+## Local Development (k3d + Helm)
+
+Run the full stack locally with k3d (K3s in Docker). Zero cloud costs, same Helm chart as production.
 
 ### Prerequisites
 
 - Docker Desktop running
 - k3d installed (`brew install k3d` or [direct download](https://k3d.io))
 - kubectl installed
+- Helm 3 installed (`brew install helm`)
 
 ### Quick Start
 
@@ -110,7 +160,7 @@ Run the full stack locally with k3d (K3s in Docker). Zero cloud costs, same K8s 
 cp k8s/secrets.yaml.example k8s/secrets.yaml
 # Edit k8s/secrets.yaml with your values
 
-# 3. Build and deploy
+# 3. Build and deploy with Helm
 ./scripts/deploy.sh
 
 # 4. Open http://localhost
@@ -126,6 +176,22 @@ cp k8s/secrets.yaml.example k8s/secrets.yaml
 ./scripts/start.sh    # Start (2-3 seconds if cluster exists)
 ./scripts/deploy.sh   # Rebuild after code changes
 ./scripts/stop.sh     # Stop (zero CPU/RAM when off)
+```
+
+### Helm Usage
+
+```bash
+# Deploy with production values
+helm upgrade --install md-vault helm/md-vault
+
+# Deploy with local (k3d) overrides
+helm upgrade --install md-vault helm/md-vault -f helm/md-vault/values-local.yaml
+
+# Dry-run to inspect rendered templates
+helm template md-vault helm/md-vault -f helm/md-vault/values-local.yaml
+
+# Uninstall
+helm uninstall md-vault
 ```
 
 ## Cloud Deployment (GCP + K3s)
@@ -169,7 +235,13 @@ docker-compose up --build
 # Frontend: http://localhost:8080
 ```
 
-## API Endpoints
+## API Documentation
+
+Interactive API docs are available at `/api/docs` (Swagger UI) when the application is running. Powered by FastAPI auto-generated OpenAPI.
+
+Disable in production with `DOCS_ENABLED=false`.
+
+### Endpoints
 
 | Method   | Endpoint              | Description              | Auth |
 |----------|-----------------------|--------------------------|------|
@@ -194,11 +266,36 @@ docker-compose up --build
 - **Integrated viewers** for PDF (PDF.js), DOCX (mammoth.js), spreadsheets (SheetJS), draw.io diagrams
 - **Tree explorer** with drag & drop between folders, context menu for rename/delete
 - **JWT auth** with bcrypt password hashing, 24h token expiry, per-IP rate limiting on login
-- **Automatic backups** via K8s CronJob to Cloudflare R2
+- **Automatic backups** via K8s CronJob with dedicated Docker image to Cloudflare R2
 - **XSS prevention** with DOMPurify on all rendered HTML
 - **Path traversal protection** on file downloads
 - **Lazy loading** of heavy JS libs (PDF.js, mammoth, SheetJS) on first use
+- **ES6 modules** frontend split into focused modules (zero build step, native browser modules)
+- **Helm chart** for parameterized K8s deployment with configurable values
+- **Swagger/OpenAPI** auto-generated interactive API documentation
 - **Win95 desktop** with minimize/maximize, desktop icons (System Properties, Recycle Bin)
+
+## CI Pipeline
+
+```
+lint --> test --> build-api
+build-frontend (parallel)
+build-backup (parallel)
+validate-helm (parallel)
+validate-k8s (parallel)
+validate-terraform (parallel)
+```
+
+| Job               | Description                                    |
+|-------------------|------------------------------------------------|
+| `lint`            | Black, isort, Flake8, Bandit, Mypy             |
+| `test`            | pytest (38 tests, in-memory SQLite)            |
+| `build-api`       | Docker build backend image                     |
+| `build-frontend`  | Docker build frontend image                    |
+| `build-backup`    | Docker build backup image                      |
+| `validate-helm`   | Helm lint chart                                |
+| `validate-k8s`    | YAML syntax validation                         |
+| `validate-terraform` | fmt, init, validate                         |
 
 ## License
 
