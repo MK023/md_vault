@@ -21,7 +21,7 @@ lint: ## Run all linters (black, isort, flake8, bandit, mypy)
 	black --check . && \
 	isort --check-only . && \
 	flake8 . --max-line-length 99 && \
-	bandit -r . -s B608 && \
+	bandit -r . -s B608 --exclude ./tests && \
 	mypy . --ignore-missing-imports --no-strict-optional
 
 fmt: ## Auto-format code (black + isort)

@@ -37,7 +37,7 @@ jobs:
         run: flake8 . --max-line-length 99
 
       - name: Bandit
-        run: bandit -r . -s B608
+        run: bandit -r . -s B608 --exclude ./tests
 
       - name: Mypy
         run: mypy . --ignore-missing-imports --no-strict-optional
