@@ -25,13 +25,13 @@
           <mxGeometry x="630" y="210" width="240" height="40" as="geometry" />
         </mxCell>
 
-        <!-- AWS EC2 Box -->
-        <mxCell id="ec2-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;dashPattern=8 4;arcSize=8;" vertex="1" parent="1">
+        <!-- GCP GCE Box -->
+        <mxCell id="gce-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;dashPattern=8 4;arcSize=8;" vertex="1" parent="1">
           <mxGeometry x="280" y="270" width="940" height="640" as="geometry" />
         </mxCell>
 
-        <!-- EC2 Label -->
-        <mxCell id="ec2-label" value="AWS EC2 t3.small — Ubuntu 22.04 — eu-south-1 (Milano)&#xa;2 vCPU, 2GB RAM, 30GB gp3 (crittografato)" style="text;html=1;align=left;verticalAlign=top;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=11;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+        <!-- GCE Label -->
+        <mxCell id="gce-label" value="GCP GCE e2-small — Ubuntu 22.04 — europe-west8 (Milano)&#xa;2 vCPU, 2GB RAM, 30GB pd-ssd" style="text;html=1;align=left;verticalAlign=top;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=11;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
           <mxGeometry x="290" y="275" width="380" height="40" as="geometry" />
         </mxCell>
 
@@ -66,7 +66,7 @@
         </mxCell>
 
         <!-- Frontend Pod -->
-        <mxCell id="frontend-pod" value="Pod: md-vault-frontend&#xa;nginx:alpine&#xa;HTML + CSS + JS (Win95 UI)&#xa;32-64Mi RAM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=0;fontSize=10;" vertex="1" parent="1">
+        <mxCell id="frontend-pod" value="Pod: md-vault-frontend&#xa;nginx:alpine&#xa;HTML + CSS + ES6 modules (Win95 UI)&#xa;32-64Mi RAM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=0;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="400" y="590" width="220" height="70" as="geometry" />
         </mxCell>
 
@@ -121,7 +121,7 @@
         </mxCell>
 
         <!-- CronJob Backup -->
-        <mxCell id="backup-cron" value="CronJob: md-vault-backup&#xa;Schedule: 0 3 * * * (ogni notte)&#xa;SQLite online backup API&#xa;64-128Mi RAM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;fontStyle=0;fontSize=10;" vertex="1" parent="1">
+        <mxCell id="backup-cron" value="CronJob: md-vault-backup&#xa;md-vault-backup:latest (boto3)&#xa;Schedule: 0 3 * * * (ogni notte)&#xa;64-128Mi RAM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;fontStyle=0;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="380" y="730" width="240" height="65" as="geometry" />
         </mxCell>
 
@@ -149,8 +149,8 @@
           <mxGeometry x="905" y="665" width="140" height="40" as="geometry" />
         </mxCell>
 
-        <!-- Security Group Note -->
-        <mxCell id="sg-note" value="Security Group:&#xa;Inbound: solo SSH (porta 22) da IP specifico&#xa;Nessuna porta HTTP/HTTPS aperta&#xa;Outbound: tutto (per tunnel + aggiornamenti)" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=15;fillColor=#FFFFCC;strokeColor=#999966;fontSize=9;fontStyle=0;align=left;spacingLeft=5;" vertex="1" parent="1">
+        <!-- Firewall Rules Note -->
+        <mxCell id="fw-note" value="GCP Firewall Rules:&#xa;Inbound: solo SSH (porta 22) da IP specifico&#xa;Nessuna porta HTTP/HTTPS aperta&#xa;Outbound: tutto (per tunnel + aggiornamenti)" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=15;fillColor=#FFFFCC;strokeColor=#999966;fontSize=9;fontStyle=0;align=left;spacingLeft=5;" vertex="1" parent="1">
           <mxGeometry x="1000" y="280" width="210" height="80" as="geometry" />
         </mxCell>
 
@@ -208,7 +208,7 @@
         <mxCell id="legend-7" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;" vertex="1" parent="1">
           <mxGeometry x="45" y="210" width="20" height="15" as="geometry" />
         </mxCell>
-        <mxCell id="legend-7-text" value="Istanza EC2" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=10;" vertex="1" parent="1">
+        <mxCell id="legend-7-text" value="Istanza GCE" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="75" y="203" width="80" height="30" as="geometry" />
         </mxCell>
 

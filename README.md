@@ -112,6 +112,22 @@ md_vault/
   docs/
     architettura.md         # Technical documentation (Italian)
     architettura.drawio     # Architecture diagram
+  Makefile                  # Project commands (make help)
+```
+
+## Quick Reference (Makefile)
+
+```bash
+make help            # Show all commands
+make test            # Run pytest (38 tests)
+make lint            # Run all linters
+make fmt             # Auto-format code
+make build           # Build all Docker images
+make deploy          # Build + Helm deploy
+make start / stop    # Cluster lifecycle
+make status          # Pod status
+make logs            # Tail API logs
+make up / down       # Docker Compose
 ```
 
 ## Testing
@@ -119,14 +135,8 @@ md_vault/
 The backend has a comprehensive pytest test suite with 38 tests covering all API endpoints.
 
 ```bash
-# Run all tests
-python -m pytest backend/tests/ -v
-
-# Run specific test file
-python -m pytest backend/tests/test_auth.py -v
-
-# Run with coverage
-python -m pytest backend/tests/ -v --tb=short
+make test                                    # Run all tests
+python -m pytest backend/tests/test_auth.py -v  # Run specific file
 ```
 
 **Test coverage:**
