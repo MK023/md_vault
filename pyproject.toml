@@ -18,3 +18,6 @@ no_strict_optional = true
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
 pythonpath = ["."]
+filterwarnings = [
+    "ignore::jwt.warnings.InsecureKeyLengthWarning",
+]

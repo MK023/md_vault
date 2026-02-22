@@ -133,7 +133,7 @@ class TestTokenValidation:
     """Tests for token validation."""
 
     def test_expired_token_returns_401(self, client):
-        secret = "test-secret-key-for-testing"
+        secret = "test-secret-key-for-testing-minimum-32-bytes"
         payload = {
             "sub": "admin",
             "exp": datetime.now(timezone.utc) - timedelta(hours=1),

@@ -4,7 +4,7 @@ import importlib
 import os
 
 # Set env vars BEFORE any backend imports
-os.environ["JWT_SECRET"] = "test-secret-key-for-testing"
+os.environ["JWT_SECRET"] = "test-secret-key-for-testing-minimum-32-bytes"
 os.environ["ADMIN_PASSWORD"] = "testpass123"
 os.environ["SENTRY_DSN"] = ""
 os.environ["CORS_ORIGINS"] = "*"
