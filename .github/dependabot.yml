@@ -1,8 +1,8 @@
 version: 2
 updates:
-  # Python (pip)
+  # Python (pip) – requirements.txt is in /backend
   - package-ecosystem: "pip"
-    directory: "/"
+    directory: "/backend"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -15,24 +15,29 @@ updates:
           - "minor"
           - "patch"
 
-  # npm
-  - package-ecosystem: "npm"
-    directory: "/"
+  # Docker – backend
+  - package-ecosystem: "docker"
+    directory: "/backend"
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
     labels:
       - "dependencies"
-    groups:
-      npm-minor:
-        update-types:
-          - "minor"
-          - "patch"
 
-  # Docker
+  # Docker – frontend
   - package-ecosystem: "docker"
-    directory: "/"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+
+  # Docker – backup
+  - package-ecosystem: "docker"
+    directory: "/backup"
     schedule:
       interval: "weekly"
       day: "monday"
