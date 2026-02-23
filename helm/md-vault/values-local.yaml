@@ -1,5 +1,8 @@
 config:
   corsOrigins: "*"
 
+secrets:
+  adminPassword: "8unvp2nzuIy8F-62fAe2ew"
+
 storage:
   hostPath: /tmp/md-vault/data

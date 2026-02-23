@@ -39,6 +39,12 @@ fi
 echo "Waiting for node to be ready..."
 kubectl wait --for=condition=Ready node --all --timeout=60s
 
+# Restore deployments scaled down by stop.sh
+if kubectl get namespace md-vault >/dev/null 2>&1; then
+  echo "Restoring deployments..."
+  kubectl scale deployment --all -n md-vault --replicas=1 --timeout=30s 2>/dev/null || true
+fi
+
 # Install Nginx Ingress Controller if not present
 if ! kubectl get namespace ingress-nginx >/dev/null 2>&1; then
   echo "Installing Nginx Ingress Controller..."
