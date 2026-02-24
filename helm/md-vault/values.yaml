@@ -68,6 +68,7 @@ backup:
   enabled: true
   schedule: "0 3 * * *"
   image: md-vault-backup:1.0.0
+  pullPolicy: Never
   r2Endpoint: ""
   resources:
     requests:

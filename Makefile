@@ -1,8 +1,9 @@
 .PHONY: help test lint fmt build build-api build-frontend build-backup \
        start stop deploy status logs clean
 
-SHELL := /bin/bash
-ROOT  := $(shell pwd)
+SHELL   := /bin/bash
+ROOT    := $(shell pwd)
+VERSION := 1.0.0
 
 # ── Help ─────────────────────────────────────────────────────────
 help: ## Show this help
@@ -31,13 +32,13 @@ fmt: ## Auto-format code (black + isort)
 build: build-api build-frontend build-backup ## Build all Docker images
 
 build-api: ## Build API image
-	docker build -t md-vault-api:latest ./backend
+	docker build -t md-vault-api:$(VERSION) ./backend
 
 build-frontend: ## Build Frontend image
-	docker build -t md-vault-frontend:latest ./frontend
+	docker build -t md-vault-frontend:$(VERSION) ./frontend
 
 build-backup: ## Build Backup image
-	docker build -t md-vault-backup:latest ./backup
+	docker build -t md-vault-backup:$(VERSION) ./backup
 
 # ── Cluster lifecycle ────────────────────────────────────────────
 start: ## Start k3d cluster (creates on first run)

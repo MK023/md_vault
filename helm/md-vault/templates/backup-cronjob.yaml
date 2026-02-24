@@ -23,6 +23,7 @@ spec:
           containers:
             - name: backup
               image: {{ .Values.backup.image }}
+              imagePullPolicy: {{ .Values.backup.pullPolicy | default "IfNotPresent" }}
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
@@ -38,6 +39,8 @@ spec:
                     configMapKeyRef:
                       name: md-vault-config
                       key: DB_PATH
+                - name: BACKUP_DIR
+                  value: "/tmp/backups"
                 - name: R2_ENDPOINT
                   valueFrom:
                     secretKeyRef:
@@ -49,10 +52,13 @@ spec:
               volumeMounts:
                 - name: data
                   mountPath: /data
-                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
           restartPolicy: OnFailure
           volumes:
             - name: data
               persistentVolumeClaim:
                 claimName: md-vault-data
+            - name: tmp
+              emptyDir: {}
 {{- end }}
