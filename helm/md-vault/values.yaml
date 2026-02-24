@@ -1,7 +1,7 @@
 namespace: md-vault
 
 api:
-  image: md-vault-api:latest
+  image: md-vault-api:1.0.0
   pullPolicy: Never
   port: 8000
   replicas: 1
@@ -9,12 +9,14 @@ api:
     requests:
       memory: "128Mi"
       cpu: "100m"
+      ephemeral-storage: "64Mi"
     limits:
       memory: "256Mi"
       cpu: "500m"
+      ephemeral-storage: "128Mi"
 
 frontend:
-  image: md-vault-frontend:latest
+  image: md-vault-frontend:1.0.0
   pullPolicy: Never
   port: 80
   replicas: 1
@@ -22,9 +24,11 @@ frontend:
     requests:
       memory: "32Mi"
       cpu: "50m"
+      ephemeral-storage: "32Mi"
     limits:
       memory: "64Mi"
       cpu: "200m"
+      ephemeral-storage: "64Mi"
 
 config:
   dbPath: "/data/vault.db"
@@ -54,19 +58,23 @@ tunnel:
     requests:
       memory: "32Mi"
       cpu: "50m"
+      ephemeral-storage: "32Mi"
     limits:
       memory: "64Mi"
       cpu: "200m"
+      ephemeral-storage: "64Mi"
 
 backup:
   enabled: true
   schedule: "0 3 * * *"
-  image: md-vault-backup:latest
+  image: md-vault-backup:1.0.0
   r2Endpoint: ""
   resources:
     requests:
       memory: "64Mi"
       cpu: "50m"
+      ephemeral-storage: "32Mi"
     limits:
       memory: "128Mi"
       cpu: "200m"
+      ephemeral-storage: "64Mi"

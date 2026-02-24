@@ -16,14 +16,23 @@ spec:
       labels:
         app: md-vault-frontend
     spec:
+      automountServiceAccountToken: false
       securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
         fsGroup: 101
       containers:
         - name: frontend
           image: {{ .Values.frontend.image }}
           imagePullPolicy: {{ .Values.frontend.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: {{ .Values.frontend.port }}
+              protocol: TCP
           resources:
             {{- toYaml .Values.frontend.resources | nindent 12 }}
           livenessProbe:

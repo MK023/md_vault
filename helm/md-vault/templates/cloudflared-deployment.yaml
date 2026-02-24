@@ -17,6 +17,7 @@ spec:
       labels:
         app: cloudflared
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -24,6 +25,12 @@ spec:
         - name: cloudflared
           image: {{ .Values.tunnel.image }}
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           args:
             - tunnel
             - --metrics

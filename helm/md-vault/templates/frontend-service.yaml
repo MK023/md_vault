@@ -9,6 +9,8 @@ spec:
   selector:
     app: md-vault-frontend
   ports:
-    - port: {{ .Values.frontend.port }}
+    - name: http
+      port: {{ .Values.frontend.port }}
       targetPort: {{ .Values.frontend.port }}
+      protocol: TCP
   type: ClusterIP

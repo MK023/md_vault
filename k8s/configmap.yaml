@@ -1,9 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: md-vault-config
-  namespace: md-vault
-data:
-  DB_PATH: "/data/vault.db"
-  LOG_LEVEL: "info"
-  JWT_EXPIRY_HOURS: "24"
