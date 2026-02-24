@@ -196,7 +196,7 @@ export function initWindows() {
         var p2 = document.createElement("p");
         p2.textContent = "FastAPI + SQLite FTS5 + K3s";
         var p3 = document.createElement("p");
-        p3.textContent = "mdvault.site";
+        p3.textContent = window.location.hostname;
         about.appendChild(h);
         about.appendChild(p1);
         about.appendChild(p2);

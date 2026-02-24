@@ -88,22 +88,23 @@ async def upload_document(
     _user: str = Depends(get_current_user),
 ):
     if not file.filename:
-        raise HTTPException(status_code=400, detail="Filename is required")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Filename is required")
     safe_name = os.path.basename(file.filename)
     ext = os.path.splitext(safe_name)[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail=f"File type {ext} not supported")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"File type {ext} not supported"
+        )
 
     data = await file.read()
     if len(data) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail="File too large (max 50MB)")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="File too large (max 50MB)"
+        )
 
     content = ""
     if ext in TEXT_EXTENSIONS:
-        try:
-            content = data.decode("utf-8", errors="replace")
-        except Exception:
-            content = ""
+        content = data.decode("utf-8", errors="replace")
 
     file_type = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
     title = os.path.splitext(safe_name)[0]

@@ -61,7 +61,7 @@ def healthz():
         with get_db() as conn:
             conn.execute("SELECT 1")
         return {"status": "ok", "db": "connected"}
-    except Exception:
+    except (sqlite3.OperationalError, sqlite3.DatabaseError):
         return JSONResponse(
             status_code=503,
             content={"status": "error", "db": "disconnected"},

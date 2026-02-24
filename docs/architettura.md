@@ -150,10 +150,10 @@ Il risultato e un sistema production-ready che risolve un problema reale, con vi
 
 | Pod/Risorsa | Immagine | Ruolo | Risorse |
 |---|---|---|---|
-| `md-vault-frontend` | `md-vault-frontend:latest` | Serve UI statica | 32-64Mi RAM |
-| `md-vault-api` | `md-vault-api:latest` | Backend REST API | 128-256Mi RAM |
+| `md-vault-frontend` | `md-vault-frontend:1.0.0` | Serve UI statica | 32-64Mi RAM |
+| `md-vault-api` | `md-vault-api:1.0.0` | Backend REST API | 128-256Mi RAM |
 | `cloudflared` | `cloudflare/cloudflared:2024.6.1` | Tunnel verso Cloudflare | 32-64Mi RAM |
-| `md-vault-backup` (CronJob) | `md-vault-backup:latest` | Backup notturno DB | 64-128Mi RAM |
+| `md-vault-backup` (CronJob) | `md-vault-backup:1.0.0` | Backup notturno DB | 64-128Mi RAM |
 | Nginx Ingress Controller | `ingress-nginx` | Routing HTTP | ~120Mi RAM |
 
 ---
@@ -348,7 +348,7 @@ def healthz():
         with get_db() as conn:
             conn.execute("SELECT 1")
         return {"status": "ok", "db": "connected"}
-    except Exception:
+    except (sqlite3.OperationalError, sqlite3.DatabaseError):
         return JSONResponse(
             status_code=503,
             content={"status": "error", "db": "disconnected"},
@@ -1286,25 +1286,6 @@ Componenti condizionali:
 
 Lo script `deploy.sh` usa `helm upgrade --install` per deploy idempotenti.
 
-### Organizzazione dei manifest (legacy)
-
-I manifest raw Kubernetes sono mantenuti in `k8s/` come riferimento:
-
-```
-k8s/
-  namespace.yaml              # Namespace md-vault
-  secrets.yaml.example        # Template secrets (non committato)
-  configmap.yaml              # Configurazione non sensibile
-  pv-pvc.yaml                 # PersistentVolume e PersistentVolumeClaim
-  api-deployment.yaml          # Deployment API FastAPI
-  api-service.yaml             # Service API (ClusterIP)
-  frontend-deployment.yaml     # Deployment Frontend nginx
-  frontend-service.yaml        # Service Frontend (ClusterIP)
-  cloudflared-deployment.yaml  # Deployment Cloudflare tunnel
-  ingress.yaml                 # Ingress rules per routing
-  backup-cronjob.yaml          # CronJob backup notturno
-```
-
 ### Namespace
 
 ```yaml
@@ -1318,19 +1299,14 @@ Tutti i componenti sono isolati nel namespace `md-vault`.
 
 ### Secrets
 
-Il file `secrets.yaml` contiene le credenziali sensibili e NON e versionato in git (vedi `.gitignore`). E disponibile un template:
+Le credenziali sensibili sono gestite tramite Helm values (`values.yaml` o override file). In fase di deploy, Helm genera il Secret Kubernetes a partire dai valori configurati:
 
 ```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: md-vault-secrets
-  namespace: md-vault
-type: Opaque
-stringData:
-  JWT_SECRET: "change-me-to-a-random-string"
-  ADMIN_PASSWORD: "change-me-to-a-strong-password"
-  CLOUDFLARE_TUNNEL_TOKEN: "your-tunnel-token-here"
+# helm/md-vault/values.yaml (esempio)
+secrets:
+  jwtSecret: "change-me-to-a-random-string"
+  adminPassword: "change-me-to-a-strong-password"
+  tunnelToken: "your-tunnel-token-here"
 ```
 
 ### ConfigMap
@@ -1404,7 +1380,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: api
-          image: md-vault-api:latest
+          image: md-vault-api:1.0.0
           imagePullPolicy: Never
           ports:
             - containerPort: 8000
@@ -1464,7 +1440,7 @@ spec:
         fsGroup: 101
       containers:
         - name: frontend
-          image: md-vault-frontend:latest
+          image: md-vault-frontend:1.0.0
           imagePullPolicy: Never
           ports:
             - containerPort: 80
@@ -1625,7 +1601,7 @@ spec:
             fsGroup: 1000
           containers:
             - name: backup
-              image: md-vault-backup:latest
+              image: md-vault-backup:1.0.0
               imagePullPolicy: Never
               resources:
                 requests:
@@ -1635,7 +1611,6 @@ spec:
               volumeMounts:
                 - name: data
                   mountPath: /data
-                  readOnly: true
           restartPolicy: OnFailure
           volumes:
             - name: data
@@ -1643,7 +1618,7 @@ spec:
                 claimName: md-vault-data
 ```
 
-Il CronJob esegue ogni notte alle 03:00 UTC. Monta il volume dati in sola lettura (`readOnly: true`) per sicurezza. L'immagine dedicata garantisce startup rapido e riproducibilita (nessun download a runtime).
+Il CronJob esegue ogni notte alle 03:00 UTC. L'immagine dedicata garantisce startup rapido e riproducibilita (nessun download a runtime).
 
 ### Budget risorse per 2GB RAM
 
@@ -1688,7 +1663,6 @@ lint ──> test ──> build-api
 build-frontend (parallelo)
 build-backup (parallelo)
 validate-helm (parallelo)
-validate-k8s (parallelo)
 validate-terraform (parallelo)
 ```
 
@@ -1799,28 +1773,7 @@ validate-helm:
       run: helm lint helm/md-vault
 ```
 
-#### 7. Validazione YAML Kubernetes (`validate-k8s`)
-
-Verifica che tutti i file YAML nella directory `k8s/` siano sintatticamente validi:
-
-```yaml
-validate-k8s:
-  runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@v4
-    - name: Validate YAML syntax
-      run: |
-        for f in k8s/*.yaml; do
-          echo "Validating $f..."
-          python3 -c "
-        import yaml, sys
-        with open(sys.argv[1]) as fh:
-            list(yaml.safe_load_all(fh))
-        " "$f" || exit 1
-        done
-```
-
-#### 8. Validazione Terraform (`validate-terraform`)
+#### 7. Validazione Terraform (`validate-terraform`)
 
 Verifica formattazione e validita della configurazione Terraform:
 
@@ -1913,29 +1866,24 @@ L'unica porta inbound e la 22 (SSH), ristretta a un singolo IP via firewall rule
 
 ### Kubernetes Secrets
 
-Le credenziali sensibili (JWT secret, password admin, token tunnel) sono gestite come Kubernetes Secrets:
+Le credenziali sensibili (JWT secret, password admin, token tunnel) sono gestite come Kubernetes Secrets, generati automaticamente dal chart Helm a partire dai valori in `values.yaml`:
 
 ```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: md-vault-secrets
-  namespace: md-vault
-type: Opaque
-stringData:
-  JWT_SECRET: "..."
-  ADMIN_PASSWORD: "..."
-  CLOUDFLARE_TUNNEL_TOKEN: "..."
+# helm/md-vault/values.yaml
+secrets:
+  jwtSecret: "..."
+  adminPassword: "..."
+  tunnelToken: "..."
 ```
 
-Il file `secrets.yaml` e escluso da git (vedi `.gitignore`). Solo il template `secrets.yaml.example` e versionato.
+I valori sensibili non sono mai committati in git. Il file `values.yaml` di produzione va configurato direttamente sulla VM.
 
 ### Container security
 
 - I container API e cloudflared girano come utente **non-root** (`runAsNonRoot: true`)
 - L'API gira come UID 1000 (utente `appuser` creato nel Dockerfile)
 - Il cloudflared gira come UID 65532 (utente `nonroot`)
-- Il backup monta il volume in **sola lettura** (`readOnly: true`)
+- Il backup monta il volume dati per eseguire il backup del database
 
 ### .gitignore hardened
 
@@ -2077,7 +2025,8 @@ Per un'applicazione a singolo utente con UI relativamente semplice, un framework
 2. K3s installato e funzionante (via `startup.sh`)
 3. Nginx Ingress Controller installato
 4. Docker installato sulla VM
-5. File `k8s/secrets.yaml` creato a partire dal template
+5. Helm 3 installato
+6. Secrets configurati in `helm/md-vault/values.yaml`
 
 ### Procedura step-by-step
 
@@ -2089,15 +2038,14 @@ git clone https://github.com/MK023/md_vault.git
 cd md_vault
 ```
 
-#### 2. Creare il file secrets
+#### 2. Configurare i secrets
 
 ```bash
-cp k8s/secrets.yaml.example k8s/secrets.yaml
-nano k8s/secrets.yaml
-# Inserire:
-#   JWT_SECRET: un valore random lungo (es. openssl rand -hex 32)
-#   ADMIN_PASSWORD: una password sicura
-#   CLOUDFLARE_TUNNEL_TOKEN: il token dal dashboard Cloudflare
+nano helm/md-vault/values.yaml
+# Inserire nei campi secrets:
+#   jwtSecret: un valore random lungo (es. openssl rand -hex 32)
+#   adminPassword: una password sicura
+#   tunnelToken: il token dal dashboard Cloudflare
 ```
 
 #### 3. Eseguire il deploy
@@ -2108,43 +2056,42 @@ nano k8s/secrets.yaml
 
 ### Script deploy.sh
 
-Lo script `deploy.sh` automatizza l'intero processo di deploy in 5 step:
+Lo script `deploy.sh` automatizza l'intero processo di deploy in 6 step, con auto-detect dell'ambiente (k3d locale o k3s cloud):
 
 ```bash
 #!/bin/bash
 set -euo pipefail
+VERSION="1.0.0"
 
-echo "=== MD Vault Deploy ==="
+echo "=== MD Vault Deploy (v$VERSION) ==="
+
+# Detect environment: k3d (local) or k3s (cloud)
+# ...
 
 # Step 1: Build immagine Docker API
-echo "[1/5] Building API image..."
-docker build -t md-vault-api:latest ./backend
+echo "[1/6] Building API image..."
+docker build -t "md-vault-api:$VERSION" ./backend
 
 # Step 2: Build immagine Docker Frontend
-echo "[2/5] Building Frontend image..."
-docker build -t md-vault-frontend:latest ./frontend
+echo "[2/6] Building Frontend image..."
+docker build -t "md-vault-frontend:$VERSION" ./frontend
 
-# Step 3: Importare le immagini in K3s
-echo "[3/5] Importing images into K3s..."
-docker save md-vault-api:latest | sudo k3s ctr images import -
-docker save md-vault-frontend:latest | sudo k3s ctr images import -
+# Step 3: Build immagine Docker Backup
+echo "[3/6] Building Backup image..."
+docker build -t "md-vault-backup:$VERSION" ./backup
 
-# Step 4: Applicare tutti i manifest Kubernetes
-echo "[4/5] Applying Kubernetes manifests..."
-kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/secrets.yaml
-kubectl apply -f k8s/configmap.yaml
-kubectl apply -f k8s/pv-pvc.yaml
-kubectl apply -f k8s/api-deployment.yaml
-kubectl apply -f k8s/api-service.yaml
-kubectl apply -f k8s/frontend-deployment.yaml
-kubectl apply -f k8s/frontend-service.yaml
-kubectl apply -f k8s/cloudflared-deployment.yaml
-kubectl apply -f k8s/ingress.yaml
-kubectl apply -f k8s/backup-cronjob.yaml
+# Step 4: Importare le immagini in k3d/K3s
+echo "[4/6] Importing images into $ENV..."
+# k3d: k3d image import ...
+# k3s: docker save | sudo k3s ctr images import -
 
-# Step 5: Restart dei deployment per usare le nuove immagini
-echo "[5/5] Restarting deployments..."
+# Step 5: Deploy con Helm
+echo "[5/6] Deploying with Helm..."
+# k3d: helm upgrade --install md-vault helm/md-vault -f values-local.yaml
+# k3s: helm upgrade --install md-vault helm/md-vault
+
+# Step 6: Restart dei deployment per usare le nuove immagini
+echo "[6/6] Restarting deployments..."
 kubectl rollout restart deployment/md-vault-api -n md-vault
 kubectl rollout restart deployment/md-vault-frontend -n md-vault
 
@@ -2282,18 +2229,6 @@ md_vault/
         ingress.yaml
         cloudflared.yaml
         backup-cronjob.yaml
-  k8s/                        # Kubernetes manifests (legacy)
-    namespace.yaml
-    secrets.yaml.example
-    configmap.yaml
-    pv-pvc.yaml
-    api-deployment.yaml
-    api-service.yaml
-    frontend-deployment.yaml
-    frontend-service.yaml
-    cloudflared-deployment.yaml
-    ingress.yaml
-    backup-cronjob.yaml
   backup/                     # Immagine Docker backup dedicata
     Dockerfile                # python:3.11-slim + boto3
     backup.py                 # Backup SQLite su R2

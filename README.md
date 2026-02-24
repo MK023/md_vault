@@ -79,18 +79,6 @@ md_vault/
       values.yaml           # Production defaults
       values-local.yaml     # k3d overrides
       templates/            # All K8s resources as templates
-  k8s/                      # Raw Kubernetes manifests (legacy)
-    namespace.yaml
-    secrets.yaml.example
-    configmap.yaml
-    pv-pvc.yaml
-    api-deployment.yaml
-    api-service.yaml
-    frontend-deployment.yaml
-    frontend-service.yaml
-    cloudflared-deployment.yaml
-    ingress.yaml
-    backup-cronjob.yaml
   backup/                   # Dedicated backup Docker image
     Dockerfile              # python:3.11-slim + boto3
     backup.py               # SQLite backup to R2
@@ -166,9 +154,8 @@ Run the full stack locally with k3d (K3s in Docker). Zero cloud costs, same Helm
 # 1. Start the cluster (creates it on first run)
 ./scripts/start.sh
 
-# 2. Create secrets
-cp k8s/secrets.yaml.example k8s/secrets.yaml
-# Edit k8s/secrets.yaml with your values
+# 2. Configure secrets in Helm values
+# Edit helm/md-vault/values-local.yaml with your JWT_SECRET, ADMIN_PASSWORD, etc.
 
 # 3. Build and deploy with Helm
 ./scripts/deploy.sh
@@ -228,8 +215,7 @@ ssh -i ~/.ssh/md-vault mdvault@<GCE_PUBLIC_IP>
 
 # 3. Clone, configure secrets, deploy
 git clone https://github.com/MK023/md_vault.git && cd md_vault
-cp k8s/secrets.yaml.example k8s/secrets.yaml
-# Edit secrets with: JWT_SECRET, ADMIN_PASSWORD, CLOUDFLARE_TUNNEL_TOKEN
+# Edit helm/md-vault/values.yaml with: JWT_SECRET, ADMIN_PASSWORD, CLOUDFLARE_TUNNEL_TOKEN
 ./scripts/deploy.sh
 
 # 4. Access via https://mdvault.site
@@ -292,7 +278,6 @@ lint --> test --> build-api
 build-frontend (parallel)
 build-backup (parallel)
 validate-helm (parallel)
-validate-k8s (parallel)
 validate-terraform (parallel)
 ```
 
@@ -304,7 +289,6 @@ validate-terraform (parallel)
 | `build-frontend`  | Docker build frontend image                    |
 | `build-backup`    | Docker build backup image                      |
 | `validate-helm`   | Helm lint chart                                |
-| `validate-k8s`    | YAML syntax validation                         |
 | `validate-terraform` | fmt, init, validate                         |
 
 ## License

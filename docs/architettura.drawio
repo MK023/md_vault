@@ -121,12 +121,12 @@
         </mxCell>
 
         <!-- CronJob Backup -->
-        <mxCell id="backup-cron" value="CronJob: md-vault-backup&#xa;md-vault-backup:latest (boto3)&#xa;Schedule: 0 3 * * * (ogni notte)&#xa;64-128Mi RAM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;fontStyle=0;fontSize=10;" vertex="1" parent="1">
+        <mxCell id="backup-cron" value="CronJob: md-vault-backup&#xa;md-vault-backup:1.0.0 (boto3)&#xa;Schedule: 0 3 * * * (ogni notte)&#xa;64-128Mi RAM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;fontStyle=0;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="380" y="730" width="240" height="65" as="geometry" />
         </mxCell>
 
         <!-- Arrow: Backup -> SQLite (read) -->
-        <mxCell id="arrow-backup-db" value="legge DB&#xa;(readOnly)" style="endArrow=block;endFill=1;html=1;strokeWidth=1;strokeColor=#996185;dashed=1;fontSize=9;" edge="1" parent="1" source="backup-cron" target="sqlite-db">
+        <mxCell id="arrow-backup-db" value="legge DB" style="endArrow=block;endFill=1;html=1;strokeWidth=1;strokeColor=#996185;dashed=1;fontSize=9;" edge="1" parent="1" source="backup-cron" target="sqlite-db">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
