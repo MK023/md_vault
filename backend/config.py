@@ -12,7 +12,7 @@ JWT_EXPIRY_HOURS = int(os.environ.get("JWT_EXPIRY_HOURS", "24"))
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/data/uploads")
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 
-if JWT_SECRET == "change-me-in-production":
+if JWT_SECRET == "change-me-in-production":  # nosec B105
     logger.warning("JWT_SECRET is using the default value — set a secure secret in production")
-if ADMIN_PASSWORD == "admin":
+if ADMIN_PASSWORD == "admin":  # nosec B105
     logger.warning("ADMIN_PASSWORD is 'admin' — set a strong password in production")
