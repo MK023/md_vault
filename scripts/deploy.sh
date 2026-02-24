@@ -36,20 +36,6 @@ else
   docker save md-vault-frontend:latest | sudo k3s ctr images import -
 fi
 
-# Check secrets exist
-if [ ! -f "$ROOT_DIR/k8s/secrets.yaml" ]; then
-  echo ""
-  echo "WARNING: k8s/secrets.yaml not found!"
-  echo "  cp k8s/secrets.yaml.example k8s/secrets.yaml"
-  echo "  # Edit with your actual secrets"
-  echo ""
-  read -p "Continue without secrets? (y/N) " -n 1 -r
-  echo
-  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    exit 1
-  fi
-fi
-
 # Deploy with Helm
 echo "[4/5] Deploying with Helm..."
 if [ "$ENV" = "k3d" ]; then

@@ -96,22 +96,6 @@ jobs:
       - name: Helm lint
         run: helm lint helm/md-vault
 
-  validate-k8s:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Validate YAML syntax
-        run: |
-          for f in k8s/*.yaml; do
-            echo "Validating $f..."
-            python3 -c "
-          import yaml, sys
-          with open(sys.argv[1]) as fh:
-              list(yaml.safe_load_all(fh))
-          " "$f" || exit 1
-          done
-
   validate-terraform:
     runs-on: ubuntu-latest
     defaults:
